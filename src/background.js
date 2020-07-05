@@ -28,6 +28,7 @@ let mainWindow
 let videos = []
 let chats = []
 let appQuiting = false
+let giftJSONLikeArr = []
 
 // Scheme must be registered before the app is ready
 protocol.registerSchemesAsPrivileged([
@@ -96,7 +97,10 @@ app.on('ready', async () => {
       console.error('Vue Devtools failed to install:', e.toString())
     }
   }
-  console.log(process.env.HOME)
+  axios.get('https://activity.bigo.tv/live/giftconfig/getOnlineGifts?jsoncallback=?')
+    .then(res => {
+      giftJSONLikeArr = JSON.parse(res.data.slice(2, -1))
+    })
 
   createWindow()
 })
@@ -536,6 +540,10 @@ ipcMain.on('deleteFav', (event, args) => {
     .write()
 
   pushFavs()
+})
+
+ipcMain.on('getGiftJSONLikeArr', async (event) => {
+  event.sender.send('giftJSONLikeArr', giftJSONLikeArr)
 })
 
 cron.schedule('0,5,10,15,20,25,30,35,40,45,50,55 * * * *', async function () {

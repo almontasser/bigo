@@ -48,6 +48,7 @@ export default {
       },
       videoFrameMenuOptions: [
         { id: 2, name: 'Reload' },
+        { id: 3, name: 'Open chat' },
         { id: 0, name: 'Add to favorites' },
         { id: 1, name: 'Hide' }
       ]
@@ -118,6 +119,8 @@ export default {
         ipcRenderer.send('closeVideo', event.item.id)
       } else if (event.option.id === 2) {
         remote.getCurrentWindow().reload()
+      } else if (event.option.id === 3) {
+        this.$store.commit('addChat', { id: this.id, name: this.name })
       }
     }
   },
