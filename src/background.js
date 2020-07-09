@@ -13,6 +13,8 @@ import WebSocket from 'ws'
 import cron from 'node-cron'
 import os from 'os'
 
+import './store'
+
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
 const homeDir = os.homedir()
@@ -20,13 +22,12 @@ const homeDir = os.homedir()
 const adapter = new FileSync(homeDir + '\\AppData\\Roaming\\bigo\\db.json')
 // const adapter = new LocalStorage('db')
 const db = lowdb(adapter)
-db.defaults({ users: [] }).write()
+db.defaults({ users: [], videoRefreshTimeout: 5000 }).write()
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
 let mainWindow
-let videos = []
-let chats = []
+let rooms = []
 let appQuiting = false
 let giftJSONLikeArr = []
 
@@ -34,6 +35,15 @@ let giftJSONLikeArr = []
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { secure: true, standard: true } }
 ])
+
+function loadURL (window, path, showDevTools) {
+  if (process.env.WEBPACK_DEV_SERVER_URL) {
+    if (!process.env.IS_TEST && showDevTools) window.webContents.openDevTools()
+    window.loadURL(process.env.WEBPACK_DEV_SERVER_URL + path)
+  } else {
+    window.loadURL('app://./index.html' + path)
+  }
+}
 
 function createWindow () {
   // Create the browser window.
@@ -49,15 +59,81 @@ function createWindow () {
   })
   mainWindow.maximize()
 
-  if (process.env.WEBPACK_DEV_SERVER_URL) {
-    // Load the url of the dev server if in development mode
-    mainWindow.loadURL(process.env.WEBPACK_DEV_SERVER_URL)
-    if (!process.env.IS_TEST) mainWindow.webContents.openDevTools()
-  } else {
-    createProtocol('app')
-    // Load the index.html when not in development
-    mainWindow.loadURL('app://./index.html')
+  const controlsWidth = 71
+  const controlsHeight = 29
+  const controls = new BrowserWindow({
+    parent: mainWindow,
+    hasShadow: false,
+    resizable: false,
+    width: controlsWidth,
+    height: controlsHeight,
+    frame: false,
+    transparent: true,
+    webPreferences: {
+      nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
+    }
+  })
+  loadURL(controls, '/#/main-controls', false)
+  controls.show()
+
+  const moveControlsWindow = () => {
+    if (mainWindow && controls) {
+      const position = mainWindow.getPosition()
+      const winSize = mainWindow.getSize()
+      controls.setPosition(position[0] + winSize[0] - controlsWidth - 145, position[1] + 1)
+    }
   }
+
+  moveControlsWindow()
+
+  mainWindow.on('move', moveControlsWindow)
+  mainWindow.on('resize', moveControlsWindow)
+
+  // const menuTemplate = [
+  //   {
+  //     label: 'View',
+  //     submenu: [
+  //       { role: 'reload' },
+  //       {
+  //         label: 'Reload All Videos',
+  //         click: () => {
+  //           rooms.forEach(room => {
+  //             if (room.vWin) room.vWin.reload()
+  //           })
+  //         }
+  //       }
+  //     ]
+  //   },
+  //   {
+  //     label: 'Settings',
+  //     submenu: [
+  //       {
+  //         label: 'Video refresh timeout',
+  //         click: () => {
+  //           const videoRefreshTimeout = db.get('videoRefreshTimeout').value()
+  //           let newVideoRefreshTimeout = mainWindow.webContents.prompt('Enter video refresh timeout', videoRefreshTimeout)
+  //           if (newVideoRefreshTimeout) {
+  //             newVideoRefreshTimeout = parseInt(newVideoRefreshTimeout)
+  //             if (newVideoRefreshTimeout !== videoRefreshTimeout) {
+  //               db.set('videoRefreshTimeout', newVideoRefreshTimeout)
+  //               rooms.forEach(room => {
+  //                 if (room.vWin) {
+  //                   room.vWin.webContents.send('videoRefreshTimeout', { videoRefreshTimeout: newVideoRefreshTimeout })
+  //                 }
+  //               })
+  //             }
+  //           }
+  //         }
+  //       }
+  //     ]
+  //   }
+  // ]
+
+  // mainWindow.setMenu(Menu.buildFromTemplate(menuTemplate))
+  mainWindow.setMenu(null)
+
+  if (!process.env.WEBPACK_DEV_SERVER_URL) createProtocol('app')
+  loadURL(mainWindow, '', true)
 
   mainWindow.on('closed', () => {
     if (process.platform !== 'darwin') {
@@ -97,12 +173,13 @@ app.on('ready', async () => {
       console.error('Vue Devtools failed to install:', e.toString())
     }
   }
+  createWindow()
+
   axios.get('https://activity.bigo.tv/live/giftconfig/getOnlineGifts?jsoncallback=?')
     .then(res => {
       giftJSONLikeArr = JSON.parse(res.data.slice(2, -1))
     })
-
-  createWindow()
+    .catch(() => {})
 })
 
 // Exit cleanly on request from parent process in development mode.
@@ -127,7 +204,7 @@ ipcMain.on('getCountries', async (event, args) => {
     countries = Object.values(res.data.data).map(({ country_code: code, country_name: label }) => ({ label, code }))
   }
 
-  mainWindow.webContents.send('countries', countries)
+  event.sender.send('countries', countries)
 })
 
 ipcMain.on('getUsers', async (event, args) => {
@@ -153,81 +230,304 @@ ipcMain.on('getUsers', async (event, args) => {
   mainWindow.webContents.send('users', await res.json())
 })
 
-ipcMain.on('createChatWindow', (event, args) => {
-  if (chats.find(c => c.id === args.id)) return
+const switchGradeToColor = (lev) => {
+  const arrColor = ['#78dbc7', '#6bc9e3', '#799bec', '#a28ded', '#da8dee', '#f393d9', '#fd9ebd', '#fd809e', '#f26283']
+  var index = 0
+  if (lev <= 33) {
+    if (lev <= 11) {
+      index = 1
+    } else if (lev <= 22) {
+      index = 2
+    } else {
+      index = 3
+    }
+  } else if (lev <= 55) {
+    if (lev <= 44) {
+      index = 4
+    } else {
+      index = 5
+    }
+  } else if (lev <= 77) {
+    if (lev <= 66) {
+      index = 6
+    } else {
+      index = 7
+    }
+  } else {
+    if (lev <= 88) {
+      index = 8
+    } else {
+      index = 9
+    }
+  }
+  return arrColor[index]
+}
+
+const switchGiftCodeToURL = (giftCode) => {
+  var allGiftArr = giftJSONLikeArr
+  var targetGift = {}
+  targetGift.name = 'gift'
+  targetGift.url = '/images/favicon.ico'
+  for (var i = 0, len = allGiftArr.length; i < len; i++) {
+    if (+allGiftArr[i].typeid === +giftCode) {
+      targetGift.url = allGiftArr[i].img_url
+      targetGift.name = allGiftArr[i].name
+      return targetGift
+    }
+  }
+  return targetGift
+}
+
+const joinUrlAndNameToGiftIcon = (iconNumber) => {
+  return '<img src="' + switchGiftCodeToURL(iconNumber).url + '" />'
+}
+
+const chatContentType = {
+  type1: '<li><p class="room_notice public_notice">===</p></li>',
+  type2: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="user_text_content">===</span></li>',
+  type3: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">shared this LIVE</span></li>',
+  type4: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="user_text_content">sent<img src="/images/gift/like.png"></span></li>',
+  type5: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">became a Fan.Won\'t miss the next LIVE</span></li>',
+  type6: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">sent a&nbsp;===&nbsp;===&nbsp;X===</span></li>'
+}
+
+const createRoom = async (id) => {
+  const room = await getUserUrls(id)
+  room.id = id
+  if (room.wsUrl) {
+    room.ws = new WebSocket(room.wsUrl)
+    room.ws.on('message', (data) => {
+      try {
+        const arr = JSON.parse(data)
+
+        const arrLength = arr.length
+        let allWords = ''
+        for (let i = arrLength - 1; i >= 0; i--) {
+          const obj = arr[i]
+          switch (obj.c) {
+            case 0:
+              // Room End
+              if (room.cWin) room.cWin.webContents.send('roomEnded')
+              if (room.vWin) room.vWin.webContents.send('roomEnded')
+              break
+            case 1:
+              allWords += chatContentType.type2
+                .replace('===', switchGradeToColor(obj.grade))
+                .replace('===', obj.grade)
+                .replace('===', obj.data.n)
+                .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+              break
+            case 2:
+              allWords += chatContentType.type1
+                .replace('===', 'Broadcaster will leave for a moment. Please hold on')
+              if (room.vWin) room.vWin.webContents.send('hold')
+              break
+            case 3:
+              allWords += chatContentType.type1
+                .replace('===', 'Broadcaster is back. LIVE is recovering')
+              if (room.vWin) room.vWin.webContents.send('resume')
+              break
+            case 4:
+              allWords += chatContentType.type3
+                .replace('===', switchGradeToColor(obj.grade))
+                .replace('===', obj.grade)
+                .replace('===', obj.data.m)
+              break
+            case 5:
+              // this.updataLiveCount(obj.data.m);
+              break
+            case 6:
+              break
+            case 7:
+              break
+            case 8:
+              allWords += chatContentType.type6
+                .replace('===', switchGradeToColor(obj.grade))
+                .replace('===', obj.grade)
+                .replace('===', obj.data.n)
+                .replace('===', switchGiftCodeToURL(obj.data.m).name)
+                .replace('===', joinUrlAndNameToGiftIcon(obj.data.m))
+                .replace('===', obj.data.c)
+              break
+            case 9:
+              allWords += chatContentType.type4
+                .replace('===', switchGradeToColor(obj.grade))
+                .replace('===', obj.grade)
+                .replace('===', obj.data.n)
+              break
+            case 10:
+              allWords += chatContentType.type5
+                .replace('===', switchGradeToColor(obj.grade))
+                .replace('===', obj.grade)
+                .replace('===', obj.data.m)
+              break
+            case 11:
+              allWords += chatContentType.type1
+                .replace('===', obj.data.m)
+              break
+            case 12:
+              allWords += chatContentType.type2
+                .replace('===', switchGradeToColor(obj.grade))
+                .replace('===', obj.grade)
+                .replace('===', obj.data.n)
+                .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+              break
+            case 13:
+              // giftAnimationObject.giftAnimationStart(obj)
+              // this.updataBeans(obj.ticket)
+              break
+            case 14:
+              break
+          }
+        }
+        if (allWords && room.cWin) {
+          room.cWin.webContents.send('message', allWords)
+        }
+      } catch (error) {
+      }
+    })
+  }
+  return room
+}
+
+ipcMain.on('createChatWindow', async (event, args) => {
+  let room = rooms.find(r => r.id === args.id)
+  if (room && room.cWin) {
+    room.cWin.show()
+    return
+  }
 
   const cWin = new BrowserWindow({
     show: true,
     useContentSize: true,
     maximizable: false,
-
+    alwaysOnTop: true,
     webPreferences: {
       nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
     }
   })
+  cWin.setMenu(null)
 
-  chats.push({ id: args.id, cWin })
+  if (!room) {
+    room = await createRoom(args.id)
+  }
+
+  room.cWin = cWin
+
+  rooms.push(room)
 
   const path = `/#/chat?id=${encodeURIComponent(args.id)}&name=${encodeURIComponent(args.name)}`
-  if (process.env.WEBPACK_DEV_SERVER_URL) {
-    // Load the url of the dev server if in development mode
-    cWin.loadURL(process.env.WEBPACK_DEV_SERVER_URL + path)
-    if (!process.env.IS_TEST) cWin.webContents.openDevTools()
-  } else {
-    // Load the index.html when not in development
-    cWin.loadURL('app://./index.html' + path)
-  }
+  loadURL(cWin, path, false)
+
   cWin.setTitle(`Chat: ${args.id} - ${args.name}`)
 
   cWin.on('closed', () => {
     if (!appQuiting) {
       mainWindow.webContents.send('removeChat', args.id)
-      chats = chats.filter(c => c.id !== args.id)
+      delete room.cWin
+      if (!room.vWin) {
+        if (room.ws) room.ws.close()
+        rooms = rooms.filter(r => r.id !== args.id)
+      }
     }
   })
 })
 
-ipcMain.on('createVideoWindow', (event, args) => {
-  if (videos.find(v => v.id === args.id)) return
-
-  // const { height: maxHeight, width: maxWidth } = screen.getPrimaryDisplay().workAreaSize
+ipcMain.on('createVideoWindow', async (event, args) => {
+  let room = rooms.find(v => v.id === args.id)
+  if (room && room.vWin) {
+    room.vWin.show()
+    return
+  }
 
   const vWin = new BrowserWindow({
     show: true,
-    // parent: mainWindow,
     useContentSize: true,
     maximizable: false,
-    // frame: false,
-    // maxHeight,
-    // maxWidth,
+    alwaysOnTop: true,
     webPreferences: {
       // Use pluginOptions.nodeIntegration, leave this alone
       // See nklayman.github.io/vue-cli-plugin-electron-builder/guide/security.html#node-integration for more info
       nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
     }
   })
-  videos.push({ id: args.id, vWin })
-  const path = `/#/video/${args.id}/${args.name}`
-  if (process.env.WEBPACK_DEV_SERVER_URL) {
-    // Load the url of the dev server if in development mode
-    vWin.loadURL(process.env.WEBPACK_DEV_SERVER_URL + path)
-    if (!process.env.IS_TEST) vWin.webContents.openDevTools()
-  } else {
-    // Load the index.html when not in development
-    vWin.loadURL('app://./index.html' + path)
+
+  const controlsWidth = 107
+  const controlsHeight = 29
+  const controls = new BrowserWindow({
+    parent: vWin,
+    hasShadow: false,
+    resizable: false,
+    width: controlsWidth,
+    height: controlsHeight,
+    frame: false,
+    transparent: true,
+    webPreferences: {
+      nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
+    }
+  })
+  loadURL(controls, '/#/video-controls?id=' + encodeURIComponent(args.id), false)
+  controls.show()
+
+  const moveControlsWindow = () => {
+    if (vWin && controls) {
+      const position = vWin.getPosition()
+      const vWinSize = vWin.getSize()
+      controls.setPosition(position[0] + vWinSize[0] - controlsWidth - 145, position[1] + 1)
+    }
   }
+
+  moveControlsWindow()
+
+  vWin.on('move', moveControlsWindow)
+  vWin.on('resize', moveControlsWindow)
+
+  // const menuTemplate = [
+  //   {
+  //     label: 'Reload',
+  //     click: () => {
+  //       if (vWin) vWin.reload()
+  //     }
+  //   },
+  //   {
+  //     label: 'Reset Size',
+  //     click: () => {
+  //       const room = rooms.find(r => r.id === args.id)
+  //       if (room && room.vWin) {
+  //         if (room.originalSize) room.vWin.setContentSize(room.originalSize.w, room.originalSize.h)
+  //       }
+  //     }
+  //   }
+  // ]
+
+  // vWin.setMenu(Menu.buildFromTemplate(menuTemplate))
+  vWin.setMenu(null)
+
+  if (!room) {
+    room = await createRoom(args.id)
+  }
+
+  room.vWin = vWin
+  room.vWinControls = controls
+
+  rooms.push(room)
+
+  const path = `/#/video/${args.id}/${args.name}`
+  loadURL(vWin, path, true)
+
   vWin.setTitle(`${args.id} - ${args.name}`)
   // vWin.setMenu(null)
 
   vWin.on('closed', () => {
     if (!appQuiting) {
       mainWindow.webContents.send('removeVideo', args.id)
-      videos = videos.filter(v => v.id !== args.id)
+      delete room.vWin
+      if (!room.cWin) {
+        if (room.ws) room.ws.close()
+        rooms = rooms.filter(r => r.id !== args.id)
+      }
     }
   })
-
-  const video = videos.find(v => v.id === args.id)
-  if (!video || video.aspect) return
 
   const MIN_HEIGHT = 0
   const MIN_WIDTH = 0
@@ -266,17 +566,17 @@ ipcMain.on('createVideoWindow', (event, args) => {
     })
 
     vWin.on('will-resize', (event, newBounds) => {
-      const b = vWin.getBounds()
-      const cb = vWin.getContentBounds()
-      newBounds = {
-        x: cb.x + (newBounds.x - b.x),
-        y: cb.y + (newBounds.y - b.y),
-        width: cb.width + (newBounds.width - b.width),
-        height: cb.height + (newBounds.height - b.height)
-      }
-
-      if (video.aspect && vWin) {
+      if (room.aspect) {
         event.preventDefault()
+        const b = vWin.getBounds()
+        const cb = vWin.getContentBounds()
+        newBounds = {
+          x: cb.x + (newBounds.x - b.x),
+          y: cb.y + (newBounds.y - b.y),
+          width: cb.width + (newBounds.width - b.width),
+          height: cb.height + (newBounds.height - b.height)
+        }
+
         let tempWidth
         let tempHeight
         const toBounds = { ...newBounds }
@@ -284,21 +584,21 @@ ipcMain.on('createVideoWindow', (event, args) => {
           case LEFT:
           case RIGHT:
             toBounds.height = getHeight(
-              video.aspect,
+              room.aspect,
               newBounds.width
             )
             break
           case TOP:
           case BOTTOM:
-            toBounds.width = getWidth(video.aspect, newBounds.height)
+            toBounds.width = getWidth(room.aspect, newBounds.height)
             break
           case BOTTOMLEFT:
           case BOTTOMRIGHT:
           case LEFTTOP:
           case RIGHTTOP:
-            toBounds.width = getWidth(video.aspect, newBounds.height)
+            toBounds.width = getWidth(room.aspect, newBounds.height)
             tempWidth = newBounds.width
-            tempHeight = getHeight(video.aspect, tempWidth)
+            tempHeight = getHeight(room.aspect, tempWidth)
             if (
               tempWidth * tempHeight >
               toBounds.width * toBounds.height
@@ -322,13 +622,7 @@ ipcMain.on('createVideoWindow', (event, args) => {
             break
           default:
         }
-        // vWin.setSize(toBounds.width, toBounds.height)
-        // vWin.setBounds(toBounds)
-        // vWin.setContentBounds({ width: toBounds.width, height: toBounds.height })
-        // vWin.setTitle(`{x: ${b.x}, y: ${b.y}, w: ${b.width}, h: ${b.height}}`)
-        // vWin.setContentSize(toBounds.width, toBounds.height)
         vWin.setContentBounds(toBounds)
-        // vWin.setPosition(toBounds.x, toBounds.y)
       }
     })
   }
@@ -339,8 +633,8 @@ ipcMain.on('getVideoUrl', async (event, args) => {
 })
 
 ipcMain.on('setWindowSize', (event, args) => {
-  const video = videos.find(v => v.id === args.id)
-  if (!video) {
+  const room = rooms.find(r => r.id === args.id)
+  if (!room) {
     console.log('ERROR in setWindowSize')
     return
   }
@@ -349,22 +643,23 @@ ipcMain.on('setWindowSize', (event, args) => {
   let w, h
   const { width, height } = screen.getPrimaryDisplay().workArea
   if (args.w > args.h) {
-    w = Math.min(width - 60, args.w)
+    w = Math.min(width / 1.25, args.w)
     h = w / aspect
   } else {
-    h = Math.min(height - 60, args.h)
+    h = Math.min(height / 1.25, args.h)
     w = h * aspect
   }
-  if (!video.aspect) {
-    video.vWin.setContentSize(parseInt(w), parseInt(h))
+  if (!room.aspect || args.forceResize) {
+    room.originalSize = { w: parseInt(w), h: parseInt(h) }
+    BrowserWindow.fromWebContents(event.sender).setContentSize(parseInt(w), parseInt(h))
   }
-  video.aspect = w / h
+  room.aspect = w / h
 })
 
 ipcMain.on('closeVideo', (event, args) => {
-  const video = videos.find(v => v.id === args)
-  if (video) {
-    video.vWin.close()
+  const room = rooms.find(v => v.id === args)
+  if (room) {
+    room.vWin.close()
   }
 })
 
@@ -424,14 +719,7 @@ ipcMain.on('showFavDialog', (event, args) => {
     path = path.slice(0, -1)
   }
 
-  if (process.env.WEBPACK_DEV_SERVER_URL) {
-    // Load the url of the dev server if in development mode
-    dialog.loadURL(process.env.WEBPACK_DEV_SERVER_URL + path)
-    if (!process.env.IS_TEST) dialog.webContents.openDevTools()
-  } else {
-    // Load the index.html when not in development
-    dialog.loadURL('app://./index.html' + path)
-  }
+  loadURL(dialog, path, false)
 
   dialog.show()
 })
@@ -542,8 +830,60 @@ ipcMain.on('deleteFav', (event, args) => {
   pushFavs()
 })
 
-ipcMain.on('getGiftJSONLikeArr', async (event) => {
-  event.sender.send('giftJSONLikeArr', giftJSONLikeArr)
+ipcMain.on('showVideoWindow', (event, args) => {
+  const room = rooms.find(r => r.id === args.id)
+  if (room && room.vWin) room.vWin.show()
+})
+
+ipcMain.on('showChatWindow', (event, args) => {
+  const room = rooms.find(r => r.id === args.id)
+  if (room && room.cWin) room.cWin.show()
+})
+
+ipcMain.on('getVideoRefreshTimeout', (event) => {
+  event.sender.send('videoRefreshTimeout', { videoRefreshTimeout: db.get('videoRefreshTimeout').value() })
+})
+
+ipcMain.on('setVideoRefreshTimeout', (event, args) => {
+  db.set('videoRefreshTimeout', args.videoRefreshTimeout).write()
+  mainWindow.webContents.send('videoRefreshTimeout', { videoRefreshTimeout: args.videoRefreshTimeout })
+  rooms.forEach(room => {
+    if (room.vWin) {
+      room.vWin.webContents.send('videoRefreshTimeout', { videoRefreshTimeout: args.videoRefreshTimeout })
+    }
+  })
+})
+
+ipcMain.on('showSettings', () => {
+  mainWindow.webContents.send('showSettings')
+  mainWindow.show()
+})
+
+ipcMain.on('toggleControls', (event, args) => {
+  const room = rooms.find(r => r.id === args.id)
+  if (room && room.vWin) {
+    room.vWin.webContents.send('toggleControls')
+  }
+})
+
+ipcMain.on('reloadVideo', (event, args) => {
+  const room = rooms.find(r => r.id === args.id)
+  if (room && room.vWin) {
+    room.vWin.webContents.send('reloadVideo')
+  }
+})
+
+ipcMain.on('resizeVideo', (event, args) => {
+  const room = rooms.find(r => r.id === args.id)
+  if (room && room.vWin) {
+    room.vWin.webContents.send('resizeVideo')
+  }
+})
+
+ipcMain.on('reloadAllVideos', () => {
+  rooms.forEach(room => {
+    if (room.vWin) room.vWin.reload()
+  })
 })
 
 cron.schedule('0,5,10,15,20,25,30,35,40,45,50,55 * * * *', async function () {

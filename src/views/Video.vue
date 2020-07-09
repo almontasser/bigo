@@ -17,10 +17,30 @@
       ref="videoPlayer"
       class="vjs-custom-skin"
       :options="playerOptions"
-      @ready="onPlayerReady($event)"
-      @play="onPlayerPlay($event)"
-      @loadeddata="onPlayerLoadeddata($event)"
-      @error="onPlayerError($event)"
+      @ready="log('ready'); onPlayerReady($event)"
+      @play="log('play'); onPlayerPlay($event)"
+      @loadeddata="log('loadeddata'); onPlayerLoadeddata($event)"
+      @error="log('error'); onPlayerError($event)"
+      @waiting="onPlayerWait($event)"
+      @abort="log('abort')"
+      @canplay="log('canplay'); onPlayerCanplay($event)"
+      @canplaythrough="log('canplaythrough')"
+      @change="log('change')"
+      @durationchange="log('durationchange')"
+      @emptied="log('emptied')"
+      @invalid="log('invalid')"
+      @load="log('load')"
+      @loadedmetadata="log('loadedmetadata')"
+      @loadstart="log('loadstart')"
+      @pause="log('pause')"
+      @playing="log('playing')"
+      @progress="log('progress')"
+      @ratechange="log('ratechang')"
+      @readystatechange="log('readystatechange')"
+      @seeked="log('seeked')"
+      @seeking="log('seeking')"
+      @suspend="log('suspend')"
+      @timeupdate="log('timeupdate')"
     ></video-player>
   </div>
 </template>
@@ -42,6 +62,9 @@ export default {
       noMediaFound: false,
       videoUrl: '',
       previousTime: 0,
+      videoRefreshTimeout: 5000,
+      refreshTimeout: null,
+      loadeddata: false,
       playerOptions: {
         autoplay: true,
         fluid: true
@@ -61,7 +84,30 @@ export default {
     }
   },
   methods: {
+    log (msg) {
+      // console.log(msg)
+    },
+    onPlayerWait (event) {
+      console.log('wait')
+
+      if (this.loadeddata && this.videoRefreshTimeout > 0 && !this.refreshTimeout) {
+        console.log('Created Timeout')
+        this.refreshTimeout = setTimeout(() => {
+          console.log('Executed Timeout')
+          this.refreshTimeout = null
+          this.playVideo(this.videoUrl)
+        }, this.videoRefreshTimeout)
+      }
+    },
+    onPlayerCanplay () {
+      if (this.refreshTimeout) {
+        console.log('Cleared Timeout')
+        clearInterval(this.refreshTimeout)
+        this.refreshTimeout = null
+      }
+    },
     onPlayerLoadeddata () {
+      this.loadeddata = true
       const video = this.$refs.videoPlayer.$el.querySelector('video')
       if (video.addEventListener) {
         video.addEventListener('contextmenu', function (e) {
@@ -73,20 +119,10 @@ export default {
         })
       }
 
-      const si = setInterval(() => {
-        if (video.currentTime === this.previousTime) {
-          clearInterval(si)
-
-          this.playVideo(this.videoUrl)
-          return
-        }
-        this.previousTime = video.currentTime
-      }, 1000)
-
       const w = video.videoWidth
       const h = video.videoHeight
 
-      ipcRenderer.send('setWindowSize', { id: this.id, w, h })
+      ipcRenderer.send('setWindowSize', { id: this.id, w, h, forceResize: false })
 
       this.loaded = true
     },
@@ -98,6 +134,7 @@ export default {
       if (event.error() && event.error().code === 4) this.noMediaFound = true
     },
     playVideo: function (source) {
+      this.loadeddata = false
       const video = {
         withCredentials: false,
         type: 'application/x-mpegurl',
@@ -112,7 +149,7 @@ export default {
     handleRightClick (event, item) {
       this.$refs.videoFrameMenu.showMenu(event, item)
     },
-    optionClicked (event) {
+    async optionClicked (event) {
       if (event.option.id === 0) {
         ipcRenderer.send('showFavDialog', event.item)
       } else if (event.option.id === 1) {
@@ -120,7 +157,9 @@ export default {
       } else if (event.option.id === 2) {
         remote.getCurrentWindow().reload()
       } else if (event.option.id === 3) {
-        this.$store.commit('addChat', { id: this.id, name: this.name })
+        if (!await this.$store.dispatch('addChat', { id: this.id, name: this.name })) {
+          ipcRenderer.send('showChatWindow', { id: this.id })
+        }
       }
     }
   },
@@ -129,11 +168,35 @@ export default {
       this.videoUrl = args.videoUrl
       this.playVideo(args.videoUrl)
     })
+
+    ipcRenderer.on('videoRefreshTimeout', (event, args) => {
+      this.videoRefreshTimeout = args.videoRefreshTimeout
+    })
+
+    ipcRenderer.on('toggleControls', (event, args) => {
+      this.player.controls(!this.player.controls())
+    })
+
+    ipcRenderer.on('reloadVideo', (event, args) => {
+      this.playVideo(this.videoUrl)
+    })
+
+    ipcRenderer.on('resizeVideo', (event, args) => {
+      const video = this.$refs.videoPlayer.$el.querySelector('video')
+      if (video) {
+        const w = video.videoWidth
+        const h = video.videoHeight
+        console.log({ w, h })
+
+        ipcRenderer.send('setWindowSize', { id: this.id, w, h, forceResize: true })
+      }
+    })
   },
   mounted () {
     this.id = this.$route.params.id
     this.name = this.$route.params.name
     ipcRenderer.send('getVideoUrl', this.id)
+    ipcRenderer.send('getVideoRefreshTimeout')
   }
 }
 </script>

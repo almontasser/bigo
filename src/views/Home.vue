@@ -46,6 +46,7 @@
               <div class="host_photo">
                 <div class="image_shadow"></div>
                 <img :src="user.cover_l" alt="">
+                <!-- <img alt=""> -->
               </div>
               <div class="recom_hover">
                 <p class="room_name">{{user.room_topic}}</p>
@@ -75,6 +76,7 @@ import VideoItem from '@/components/VideoItem.vue'
 import ChatItem from '@/components/ChatItem.vue'
 import { ipcRenderer } from 'electron'
 import { mapState } from 'vuex'
+import smalltalk from 'smalltalk'
 
 export default {
   name: 'Home',
@@ -97,7 +99,9 @@ export default {
         { id: 2, name: 'Open Chat' },
         { id: 0, name: 'Edit' },
         { id: 1, name: 'Delete' }
-      ]
+      ],
+      videoRefreshTimeout: 0,
+      showingSettings: false
     }
   },
   computed: {
@@ -129,8 +133,10 @@ export default {
     //     this.videos.push({ id, name })
     //   }
     // },
-    addVideo (id, name) {
-      this.$store.commit('addVideo', { id, name })
+    async addVideo (id, name) {
+      if (!await this.$store.dispatch('addVideo', { id, name })) {
+        ipcRenderer.send('showVideoWindow', { id: id })
+      }
     },
     toggleUsersSidebar () {
       this.users = []
@@ -158,7 +164,9 @@ export default {
         ipcRenderer.send('showFavDialog', { id: event.item.bigo_id, name: event.item.nick_name })
       }
       if (event.option.id === 1) {
-        this.$store.commit('addChat', { id: event.item.bigo_id, name: event.item.nick_name })
+        if (!await this.$store.dispatch('addChat', { id: event.item.bigo_id, name: event.item.nick_name })) {
+          ipcRenderer.send('showChatWindow', { id: event.item.bigo_id })
+        }
       }
     },
     addFavDialog () {
@@ -171,7 +179,7 @@ export default {
       this.fetchFavsList()
       this.favsSidebarVisible = true
     },
-    favsOptionClicked (event) {
+    async favsOptionClicked (event) {
       if (event.option.id === 0) {
         ipcRenderer.send('showFavDialog', { id: event.item.id, name: event.item.customName, edit: event.item.id })
       }
@@ -179,7 +187,9 @@ export default {
         ipcRenderer.send('deleteFav', { id: event.item.id })
       }
       if (event.option.id === 2) {
-        this.$store.commit('addChat', { id: event.item.id, name: event.item.customName })
+        if (!await this.$store.dispatch('addChat', { id: event.item.id, name: event.item.customName })) {
+          ipcRenderer.send('showChatWindow', { id: event.item.id })
+        }
       }
     },
     handleFavsRightClick (event, item) {
@@ -205,19 +215,39 @@ export default {
     })
 
     ipcRenderer.on('removeVideo', (event, args) => {
-      this.$store.commit('removeVideo', { id: args })
+      this.$store.dispatch('removeVideo', { id: args })
     })
 
     ipcRenderer.on('removeChat', (event, args) => {
-      this.$store.commit('removeChat', { id: args })
+      this.$store.dispatch('removeChat', { id: args })
     })
 
     ipcRenderer.on('favs', (event, args) => {
       this.favs = args.favs
     })
+
+    ipcRenderer.on('showSettings', (event, args) => {
+      if (!this.showingSettings) {
+        this.showingSettings = true
+        smalltalk
+          .prompt('Vide Refresh Timeout', 'Enter Video Refresh Timeout', this.videoRefreshTimeout)
+          .then((value) => {
+            ipcRenderer.send('setVideoRefreshTimeout', { videoRefreshTimeout: parseInt(value) })
+            this.showingSettings = false
+          })
+          .catch(() => {
+            this.showingSettings = false
+          })
+      }
+    })
+
+    ipcRenderer.on('videoRefreshTimeout', (event, args) => {
+      this.videoRefreshTimeout = args.videoRefreshTimeout
+    })
   },
   async mounted () {
     ipcRenderer.send('getCountries')
+    ipcRenderer.send('getVideoRefreshTimeout')
   }
 }
 </script>
@@ -310,6 +340,7 @@ export default {
 
 .room_item a, .room_item img {
     display: block;
+    height: 100%;
 }
 
 .room_item img {

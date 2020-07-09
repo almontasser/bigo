@@ -1,6 +1,7 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
-import createPersistedState from 'vuex-persistedstate'
+// import { ipcRenderer } from 'electron'
+import { createPersistedState, createSharedMutations } from 'vuex-electron'
 
 Vue.use(Vuex)
 
@@ -10,26 +11,55 @@ export default new Vuex.Store({
     chats: []
   },
   mutations: {
-    addVideo (state, payload) {
-      if (payload.id && !state.videos.find(v => v.id === payload.id)) {
-        state.videos.push(payload)
-      }
+    mAddVideo (state, payload) {
+      return new Promise((resolve) => {
+        if (payload.id) {
+          if (!state.videos.find(v => v.id === payload.id)) {
+            state.videos.push(payload)
+            resolve(true)
+          } else {
+            resolve(false)
+          }
+        }
+      })
     },
-    addChat (state, payload) {
-      state.chats.push(payload)
+    mAddChat (state, payload) {
+      return new Promise((resolve) => {
+        if (payload.id) {
+          if (!state.chats.find(c => c.id === payload.id)) {
+            state.chats.push(payload)
+            resolve(true)
+          } else {
+            resolve(false)
+          }
+        }
+      })
     },
-    removeVideo (state, payload) {
+    mRemoveVideo (state, payload) {
       state.videos = state.videos.filter(v => v.id !== payload.id)
     },
-    removeChat (state, payload) {
+    mRemoveChat (state, payload) {
       state.chats = state.chats.filter(c => c.id !== payload.id)
     }
   },
   actions: {
+    addVideo ({ commit }, payload) {
+      commit('mAddVideo', payload)
+    },
+    addChat ({ commit }, payload) {
+      commit('mAddChat', payload)
+    },
+    removeVideo ({ commit }, payload) {
+      commit('mRemoveVideo', payload)
+    },
+    removeChat ({ commit }, payload) {
+      commit('mRemoveChat', payload)
+    }
   },
   modules: {
   },
   plugins: [
-    createPersistedState()
+    createPersistedState(),
+    createSharedMutations()
   ]
 })
