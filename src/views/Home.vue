@@ -85,7 +85,7 @@ export default {
       usersSidebarVisible: false,
       usersSearch: '',
       countries: [],
-      usersCountry: null,
+      usersCountry: { code: 'SA', label: 'Saudi Arabia' },
       users: [],
       usersInfiniteLoaderState: null,
       usersMenuOptions: [

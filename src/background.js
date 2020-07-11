@@ -1,6 +1,6 @@
 'use strict'
 
-import { app, protocol, BrowserWindow, ipcMain, screen, Menu } from 'electron'
+import { app, protocol, BrowserWindow, ipcMain, Menu } from 'electron'
 import { createProtocol } from 'vue-cli-plugin-electron-builder/lib'
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
 import lowdb from 'lowdb'
@@ -17,13 +17,6 @@ import './store'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
-const homeDir = os.homedir()
-
-const adapter = new FileSync(homeDir + '\\AppData\\Roaming\\bigo\\db.json')
-// const adapter = new LocalStorage('db')
-const db = lowdb(adapter)
-db.defaults({ users: [], videoRefreshTimeout: 5000 }).write()
-
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
 let mainWindow
@@ -36,11 +29,19 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { secure: true, standard: true } }
 ])
 
+const homeDir = os.homedir()
+
+const adapter = new FileSync(homeDir + '\\AppData\\Roaming\\bigo\\db.json')
+// const adapter = new LocalStorage('db')
+const db = lowdb(adapter)
+db.defaults({ users: [], videoRefreshTimeout: 5000 }).write()
+
 function loadURL (window, path, showDevTools) {
   if (process.env.WEBPACK_DEV_SERVER_URL) {
     if (!process.env.IS_TEST && showDevTools) window.webContents.openDevTools()
     window.loadURL(process.env.WEBPACK_DEV_SERVER_URL + path)
   } else {
+    createProtocol('app')
     window.loadURL('app://./index.html' + path)
   }
 }
@@ -132,7 +133,7 @@ function createWindow () {
   // mainWindow.setMenu(Menu.buildFromTemplate(menuTemplate))
   mainWindow.setMenu(null)
 
-  if (!process.env.WEBPACK_DEV_SERVER_URL) createProtocol('app')
+  // if (!process.env.WEBPACK_DEV_SERVER_URL) createProtocol('app')
   loadURL(mainWindow, '', true)
 
   mainWindow.on('closed', () => {
@@ -337,8 +338,10 @@ const createRoom = async (id) => {
               // this.updataLiveCount(obj.data.m);
               break
             case 6:
+              console.log(obj)
               break
             case 7:
+              console.log(obj)
               break
             case 8:
               allWords += chatContentType.type6
@@ -377,6 +380,7 @@ const createRoom = async (id) => {
               // this.updataBeans(obj.ticket)
               break
             case 14:
+              console.log(obj)
               break
           }
         }
@@ -417,7 +421,7 @@ ipcMain.on('createChatWindow', async (event, args) => {
   rooms.push(room)
 
   const path = `/#/chat?id=${encodeURIComponent(args.id)}&name=${encodeURIComponent(args.name)}`
-  loadURL(cWin, path, false)
+  loadURL(cWin, path, true)
 
   cWin.setTitle(`Chat: ${args.id} - ${args.name}`)
 
@@ -445,6 +449,8 @@ ipcMain.on('createVideoWindow', async (event, args) => {
     useContentSize: true,
     maximizable: false,
     alwaysOnTop: true,
+    width: 480,
+    height: 640,
     webPreferences: {
       // Use pluginOptions.nodeIntegration, leave this alone
       // See nklayman.github.io/vue-cli-plugin-electron-builder/guide/security.html#node-integration for more info
@@ -505,6 +511,7 @@ ipcMain.on('createVideoWindow', async (event, args) => {
 
   if (!room) {
     room = await createRoom(args.id)
+    room.aspect = 480 / 640
   }
 
   room.vWin = vWin
@@ -632,29 +639,38 @@ ipcMain.on('getVideoUrl', async (event, args) => {
   event.sender.send('videoUrl', await getUserUrls(args))
 })
 
-ipcMain.on('setWindowSize', (event, args) => {
-  const room = rooms.find(r => r.id === args.id)
-  if (!room) {
-    console.log('ERROR in setWindowSize')
-    return
-  }
+// ipcMain.on('setWindowSize', (event, args) => {
+//   const room = rooms.find(r => r.id === args.id)
+//   if (!room) {
+//     console.log('ERROR in setWindowSize')
+//     return
+//   }
 
-  const aspect = args.w / args.h
-  let w, h
-  const { width, height } = screen.getPrimaryDisplay().workArea
-  if (args.w > args.h) {
-    w = Math.min(width / 1.25, args.w)
-    h = w / aspect
-  } else {
-    h = Math.min(height / 1.25, args.h)
-    w = h * aspect
-  }
-  if (!room.aspect || args.forceResize) {
-    room.originalSize = { w: parseInt(w), h: parseInt(h) }
-    BrowserWindow.fromWebContents(event.sender).setContentSize(parseInt(w), parseInt(h))
-  }
-  room.aspect = w / h
-})
+//   const aspect = args.w / args.h
+//   let w, h
+//   const { width, height } = screen.getPrimaryDisplay().workArea
+//   if (args.w > args.h) {
+//     w = Math.min(width / 1.25, args.w)
+//     h = w / aspect
+//   } else {
+//     h = Math.min(height / 1.25, args.h)
+//     w = h * aspect
+//   }
+//   const win = BrowserWindow.fromWebContents(event.sender)
+
+//   if (!room.aspect || args.forceResize) {
+//     room.originalSize = { w: parseInt(w), h: parseInt(h) }
+//     win.setContentSize(parseInt(w), parseInt(h))
+//   }
+//   const oldAspect = room.aspect
+//   room.aspect = w / h
+
+//   if (oldAspect !== room.aspect) {
+//     room.originalSize = { w: parseInt(w), h: parseInt(h) }
+//     const size = win.getContentSize()
+//     win.setContentSize(size[0], parseInt(size[0] / room.aspect))
+//   }
+// })
 
 ipcMain.on('closeVideo', (event, args) => {
   const room = rooms.find(v => v.id === args)
@@ -869,7 +885,8 @@ ipcMain.on('toggleControls', (event, args) => {
 ipcMain.on('reloadVideo', (event, args) => {
   const room = rooms.find(r => r.id === args.id)
   if (room && room.vWin) {
-    room.vWin.webContents.send('reloadVideo')
+    // room.vWin.webContents.send('reloadVideo')
+    room.vWin.reload()
   }
 })
 
@@ -880,7 +897,8 @@ ipcMain.on('resizeVideo', (event, args) => {
   }
 })
 
-ipcMain.on('reloadAllVideos', () => {
+ipcMain.on('reloadAll', () => {
+  mainWindow.reload()
   rooms.forEach(room => {
     if (room.vWin) room.vWin.reload()
   })

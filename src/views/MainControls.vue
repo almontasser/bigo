@@ -16,7 +16,7 @@ export default {
   },
   methods: {
     reloadAllVideosClick () {
-      ipcRenderer.send('reloadAllVideos')
+      ipcRenderer.send('reloadAll')
     },
     settingsClick () {
       ipcRenderer.send('showSettings')

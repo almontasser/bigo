@@ -9,8 +9,10 @@
     <!-- <p style="position: absolute; z-index: 10; color: white;">{{this.name}} - {{this.id}}</p> -->
     <div v-show="!loaded" class="loading-frame text-center">
       <div v-if="noMediaFound" style="color: white; font-size: 2rem;">User Is not Live</div>
+      <div v-if="videoEnded" style="color: white; font-size: 2rem;">Live video Ended</div>
       <b-spinner v-if="!noMediaFound" class="spinner" style="width: 3rem; height: 3rem;" label="Large Spinner"></b-spinner>
     </div>
+    <div v-if="userIsPaused" class="user-is-paused"></div>
     <video-player
       v-if="!noMediaFound"
       v-show="loaded"
@@ -40,7 +42,8 @@
       @seeked="log('seeked')"
       @seeking="log('seeking')"
       @suspend="log('suspend')"
-      @timeupdate="log('timeupdate')"
+      @timeupdate="log('timeupdate'); onPlayerTimeupdate($event)"
+      @resize="log('resize')"
     ></video-player>
   </div>
 </template>
@@ -60,6 +63,7 @@ export default {
       name: '',
       loaded: false,
       noMediaFound: false,
+      videoEnded: false,
       videoUrl: '',
       previousTime: 0,
       videoRefreshTimeout: 5000,
@@ -67,14 +71,20 @@ export default {
       loadeddata: false,
       playerOptions: {
         autoplay: true,
-        fluid: true
+        controls: false,
+        loadingSpinner: false,
+        // fluid: true,
+        fill: true
       },
       videoFrameMenuOptions: [
         { id: 2, name: 'Reload' },
         { id: 3, name: 'Open chat' },
         { id: 0, name: 'Add to favorites' },
         { id: 1, name: 'Hide' }
-      ]
+      ],
+      userIsPaused: false,
+      videoWidth: 0,
+      videoHeight: 0
     }
   },
   computed: {
@@ -119,11 +129,6 @@ export default {
         })
       }
 
-      const w = video.videoWidth
-      const h = video.videoHeight
-
-      ipcRenderer.send('setWindowSize', { id: this.id, w, h, forceResize: false })
-
       this.loaded = true
     },
     onPlayerPlay () {},
@@ -133,11 +138,25 @@ export default {
 
       if (event.error() && event.error().code === 4) this.noMediaFound = true
     },
+    onPlayerTimeupdate (event) {
+      const video = this.$refs.videoPlayer.$el.querySelector('video')
+
+      const w = video.videoWidth
+      const h = video.videoHeight
+
+      if (this.videoWidth !== w || this.videoHeight !== h) {
+        this.videoWidth = w
+        this.videoHeight = h
+        // ipcRenderer.send('setWindowSize', { id: this.id, w, h, forceResize: false })
+        // this.player.fill(true)
+        // this.player.fluid(true)
+      }
+    },
     playVideo: function (source) {
       this.loadeddata = false
       const video = {
         withCredentials: false,
-        type: 'application/x-mpegurl',
+        type: 'application/x-mpegURL',
         src: source
       }
       if (!this.player) return
@@ -169,6 +188,16 @@ export default {
       this.playVideo(args.videoUrl)
     })
 
+    ipcRenderer.on('hold', () => {
+      this.userIsPaused = true
+      this.player.pause()
+    })
+
+    ipcRenderer.on('resume', () => {
+      this.userIsPaused = false
+      this.player.play()
+    })
+
     ipcRenderer.on('videoRefreshTimeout', (event, args) => {
       this.videoRefreshTimeout = args.videoRefreshTimeout
     })
@@ -182,14 +211,21 @@ export default {
     })
 
     ipcRenderer.on('resizeVideo', (event, args) => {
-      const video = this.$refs.videoPlayer.$el.querySelector('video')
-      if (video) {
-        const w = video.videoWidth
-        const h = video.videoHeight
-        console.log({ w, h })
+      // const video = this.$refs.videoPlayer.$el.querySelector('video')
+      // if (video) {
+      //   const w = video.videoWidth
+      //   const h = video.videoHeight
+      //   console.log({ w, h })
+      remote.getCurrentWindow().setContentSize(480, 640)
+      console.log(this.videoUrl)
+      // ipcRenderer.send('setWindowSize', { id: this.id, w, h, forceResize: true })
+      // }
+    })
 
-        ipcRenderer.send('setWindowSize', { id: this.id, w, h, forceResize: true })
-      }
+    ipcRenderer.on('roomEnded', () => {
+      this.video.reset()
+      this.videoEnded = true
+      this.loaded = false
     })
   },
   mounted () {
@@ -222,4 +258,24 @@ export default {
   position: absolute;
   z-index: 2;
 }
+
+.user-is-paused {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(0, 0, 0, 0.2),
+    rgba(0, 0, 0, 0.2) 10px,
+    rgba(0, 0, 0, 0.3) 10px,
+    rgba(0, 0, 0, 0.3) 20px
+  )
+}
+
+.video-player {
+  width: 100%;
+  height: 100%;
+}
+
 </style>
