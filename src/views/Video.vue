@@ -13,7 +13,11 @@
       <b-spinner v-if="!noMediaFound" class="spinner" style="width: 3rem; height: 3rem;" label="Large Spinner"></b-spinner>
     </div>
     <div v-if="userIsPaused" class="user-is-paused"></div>
-    <video-player
+    <video
+      ref="videoPlayer"
+      class="video-js"
+    ></video>
+    <!-- <video-player
       v-if="!noMediaFound"
       v-show="loaded"
       ref="videoPlayer"
@@ -44,17 +48,15 @@
       @suspend="log('suspend')"
       @timeupdate="log('timeupdate'); onPlayerTimeupdate($event)"
       @resize="log('resize')"
-    ></video-player>
+    ></video-player> -->
   </div>
 </template>
 
 <script>
 import { ipcRenderer, remote } from 'electron'
 import videojs from 'video.js'
-window.videojs = videojs
 
-// hls plugin for videojs6
-require('videojs-contrib-hls/dist/videojs-contrib-hls.js')
+import 'video.js/dist/video-js.css'
 
 export default {
   data () {
@@ -69,6 +71,7 @@ export default {
       videoRefreshTimeout: 5000,
       refreshTimeout: null,
       loadeddata: false,
+      player: null,
       playerOptions: {
         autoplay: true,
         controls: false,
@@ -88,17 +91,17 @@ export default {
     }
   },
   computed: {
-    player () {
-      if (this.$refs.videoPlayer) return this.$refs.videoPlayer.player
-      else return null
-    }
+    // player () {
+    //   if (this.$refs.videoPlayer) return this.$refs.videoPlayer.player
+    //   else return null
+    // }
   },
   methods: {
     log (msg) {
       // console.log(msg)
     },
     onPlayerWait (event) {
-      console.log('wait')
+      this.log('wait')
 
       if (this.loadeddata && this.videoRefreshTimeout > 0 && !this.refreshTimeout) {
         console.log('Created Timeout')
@@ -110,6 +113,8 @@ export default {
       }
     },
     onPlayerCanplay () {
+      this.log('timeupdate')
+
       if (this.refreshTimeout) {
         console.log('Cleared Timeout')
         clearInterval(this.refreshTimeout)
@@ -117,8 +122,10 @@ export default {
       }
     },
     onPlayerLoadeddata () {
+      this.log('loadeddata')
+
       this.loadeddata = true
-      const video = this.$refs.videoPlayer.$el.querySelector('video')
+      const video = this.$refs.videoPlayer
       if (video.addEventListener) {
         video.addEventListener('contextmenu', function (e) {
           e.preventDefault()
@@ -133,24 +140,25 @@ export default {
     },
     onPlayerPlay () {},
     onPlayerReady () {},
-    onPlayerError (event) {
-      console.log(event)
+    onPlayerError (error) {
+      this.log('error')
 
-      if (event.error() && event.error().code === 4) this.noMediaFound = true
+      error.stopImmediatePropagation()
+      if (this.player.error() && this.player.error().code === 4) this.noMediaFound = true
     },
     onPlayerTimeupdate (event) {
-      const video = this.$refs.videoPlayer.$el.querySelector('video')
+      // const video = this.$refs.videoPlayer
 
-      const w = video.videoWidth
-      const h = video.videoHeight
+      // const w = video.videoWidth
+      // const h = video.videoHeight
 
-      if (this.videoWidth !== w || this.videoHeight !== h) {
-        this.videoWidth = w
-        this.videoHeight = h
-        // ipcRenderer.send('setWindowSize', { id: this.id, w, h, forceResize: false })
-        // this.player.fill(true)
-        // this.player.fluid(true)
-      }
+      // if (this.videoWidth !== w || this.videoHeight !== h) {
+      //   this.videoWidth = w
+      //   this.videoHeight = h
+      //   // ipcRenderer.send('setWindowSize', { id: this.id, w, h, forceResize: false })
+      //   // this.player.fill(true)
+      //   // this.player.fluid(true)
+      // }
     },
     playVideo: function (source) {
       this.loadeddata = false
@@ -231,6 +239,15 @@ export default {
   mounted () {
     this.id = this.$route.params.id
     this.name = this.$route.params.name
+
+    this.player = videojs(this.$refs.videoPlayer, this.playerOptions, function onPlayerReady () {
+    })
+    this.player.on('waiting', this.onPlayerWait)
+    this.player.on('canplay', this.onPlayerCanplay)
+    this.player.on('loadeddata', this.onPlayerLoadeddata)
+    this.player.on('error', this.onPlayerError)
+    this.player.on('timeupdate', this.onPlayerTimeupdate)
+
     ipcRenderer.send('getVideoUrl', this.id)
     ipcRenderer.send('getVideoRefreshTimeout')
   }
