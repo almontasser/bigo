@@ -38,8 +38,8 @@ db.defaults({ users: [], videoRefreshTimeout: 5000 }).write()
 
 function loadURL (window, path, showDevTools) {
   if (process.env.WEBPACK_DEV_SERVER_URL) {
-    if (!process.env.IS_TEST && showDevTools) window.webContents.openDevTools()
     window.loadURL(process.env.WEBPACK_DEV_SERVER_URL + path)
+    if (!process.env.IS_TEST && showDevTools) window.webContents.openDevTools()
   } else {
     createProtocol('app')
     window.loadURL('app://./index.html' + path)
@@ -51,10 +51,10 @@ function createWindow () {
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    useContentSize: true,
     title: 'Bigo Live',
     webPreferences: {
-      // Use pluginOptions.nodeIntegration, leave this alone
-      // See nklayman.github.io/vue-cli-plugin-electron-builder/guide/security.html#node-integration for more info
+      enableRemoteModule: true,
       nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
     }
   })
@@ -68,9 +68,11 @@ function createWindow () {
     resizable: false,
     width: controlsWidth,
     height: controlsHeight,
+    useContentSize: true,
     frame: false,
     transparent: true,
     webPreferences: {
+      enableRemoteModule: true,
       nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
     }
   })
@@ -90,47 +92,6 @@ function createWindow () {
   mainWindow.on('move', moveControlsWindow)
   mainWindow.on('resize', moveControlsWindow)
 
-  // const menuTemplate = [
-  //   {
-  //     label: 'View',
-  //     submenu: [
-  //       { role: 'reload' },
-  //       {
-  //         label: 'Reload All Videos',
-  //         click: () => {
-  //           rooms.forEach(room => {
-  //             if (room.vWin) room.vWin.reload()
-  //           })
-  //         }
-  //       }
-  //     ]
-  //   },
-  //   {
-  //     label: 'Settings',
-  //     submenu: [
-  //       {
-  //         label: 'Video refresh timeout',
-  //         click: () => {
-  //           const videoRefreshTimeout = db.get('videoRefreshTimeout').value()
-  //           let newVideoRefreshTimeout = mainWindow.webContents.prompt('Enter video refresh timeout', videoRefreshTimeout)
-  //           if (newVideoRefreshTimeout) {
-  //             newVideoRefreshTimeout = parseInt(newVideoRefreshTimeout)
-  //             if (newVideoRefreshTimeout !== videoRefreshTimeout) {
-  //               db.set('videoRefreshTimeout', newVideoRefreshTimeout)
-  //               rooms.forEach(room => {
-  //                 if (room.vWin) {
-  //                   room.vWin.webContents.send('videoRefreshTimeout', { videoRefreshTimeout: newVideoRefreshTimeout })
-  //                 }
-  //               })
-  //             }
-  //           }
-  //         }
-  //       }
-  //     ]
-  //   }
-  // ]
-
-  // mainWindow.setMenu(Menu.buildFromTemplate(menuTemplate))
   mainWindow.setMenu(null)
 
   // if (!process.env.WEBPACK_DEV_SERVER_URL) createProtocol('app')
@@ -338,10 +299,10 @@ const createRoom = async (id) => {
               // this.updataLiveCount(obj.data.m);
               break
             case 6:
-              console.log(obj)
+              // console.log(obj)
               break
             case 7:
-              console.log(obj)
+              // console.log(obj)
               break
             case 8:
               allWords += chatContentType.type6
@@ -380,7 +341,7 @@ const createRoom = async (id) => {
               // this.updataBeans(obj.ticket)
               break
             case 14:
-              console.log(obj)
+              // console.log(obj)
               break
           }
         }
@@ -407,10 +368,12 @@ ipcMain.on('createChatWindow', async (event, args) => {
     maximizable: false,
     alwaysOnTop: true,
     webPreferences: {
+      enableRemoteModule: true,
       nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
     }
   })
   cWin.setMenu(null)
+  // cWin.menuBarVisible = false
 
   if (!room) {
     room = await createRoom(args.id)
@@ -446,14 +409,14 @@ ipcMain.on('createVideoWindow', async (event, args) => {
 
   const vWin = new BrowserWindow({
     show: true,
-    useContentSize: true,
     maximizable: false,
     alwaysOnTop: true,
     width: 480,
     height: 640,
+    useContentSize: true,
+    // autoHideMenuBar: true,
     webPreferences: {
-      // Use pluginOptions.nodeIntegration, leave this alone
-      // See nklayman.github.io/vue-cli-plugin-electron-builder/guide/security.html#node-integration for more info
+      enableRemoteModule: true,
       nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
     }
   })
@@ -469,6 +432,7 @@ ipcMain.on('createVideoWindow', async (event, args) => {
     frame: false,
     transparent: true,
     webPreferences: {
+      enableRemoteModule: true,
       nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
     }
   })
@@ -488,25 +452,6 @@ ipcMain.on('createVideoWindow', async (event, args) => {
   vWin.on('move', moveControlsWindow)
   vWin.on('resize', moveControlsWindow)
 
-  // const menuTemplate = [
-  //   {
-  //     label: 'Reload',
-  //     click: () => {
-  //       if (vWin) vWin.reload()
-  //     }
-  //   },
-  //   {
-  //     label: 'Reset Size',
-  //     click: () => {
-  //       const room = rooms.find(r => r.id === args.id)
-  //       if (room && room.vWin) {
-  //         if (room.originalSize) room.vWin.setContentSize(room.originalSize.w, room.originalSize.h)
-  //       }
-  //     }
-  //   }
-  // ]
-
-  // vWin.setMenu(Menu.buildFromTemplate(menuTemplate))
   vWin.setMenu(null)
 
   if (!room) {
@@ -519,11 +464,10 @@ ipcMain.on('createVideoWindow', async (event, args) => {
 
   rooms.push(room)
 
-  const path = `/#/video/${args.id}/${args.name}`
+  const path = `/#/video?id=${encodeURIComponent(args.id)}&name=${encodeURIComponent(args.name)}`
   loadURL(vWin, path, true)
 
   vWin.setTitle(`${args.id} - ${args.name}`)
-  // vWin.setMenu(null)
 
   vWin.on('closed', () => {
     if (!appQuiting) {
@@ -639,39 +583,6 @@ ipcMain.on('getVideoUrl', async (event, args) => {
   event.sender.send('videoUrl', await getUserUrls(args))
 })
 
-// ipcMain.on('setWindowSize', (event, args) => {
-//   const room = rooms.find(r => r.id === args.id)
-//   if (!room) {
-//     console.log('ERROR in setWindowSize')
-//     return
-//   }
-
-//   const aspect = args.w / args.h
-//   let w, h
-//   const { width, height } = screen.getPrimaryDisplay().workArea
-//   if (args.w > args.h) {
-//     w = Math.min(width / 1.25, args.w)
-//     h = w / aspect
-//   } else {
-//     h = Math.min(height / 1.25, args.h)
-//     w = h * aspect
-//   }
-//   const win = BrowserWindow.fromWebContents(event.sender)
-
-//   if (!room.aspect || args.forceResize) {
-//     room.originalSize = { w: parseInt(w), h: parseInt(h) }
-//     win.setContentSize(parseInt(w), parseInt(h))
-//   }
-//   const oldAspect = room.aspect
-//   room.aspect = w / h
-
-//   if (oldAspect !== room.aspect) {
-//     room.originalSize = { w: parseInt(w), h: parseInt(h) }
-//     const size = win.getContentSize()
-//     win.setContentSize(size[0], parseInt(size[0] / room.aspect))
-//   }
-// })
-
 ipcMain.on('closeVideo', (event, args) => {
   const room = rooms.find(v => v.id === args)
   if (room) {
@@ -689,9 +600,11 @@ ipcMain.on('showFavDialog', (event, args) => {
     height: dialogHeight,
     parent: parent,
     modal: true,
+    alwaysOnTop: true,
     minimizable: false,
     maximizable: false,
     webPreferences: {
+      enableRemoteModule: true,
       nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
     }
   })
@@ -810,7 +723,7 @@ const updateUser = async (user, createIfNotExists) => {
     if (u.value()) u.assign(user).write()
     else db.get('users').push(user).write()
 
-    pushFavs()
+    mainWindow.webContents.send('fav', user)
   }
 
   return user
@@ -836,6 +749,10 @@ ipcMain.on('addFav', (event, args) => {
 
 ipcMain.on('getFavs', () => {
   pushFavs()
+})
+
+ipcMain.on('refreshFavs', () => {
+  updateUsers()
 })
 
 ipcMain.on('deleteFav', (event, args) => {
@@ -870,9 +787,58 @@ ipcMain.on('setVideoRefreshTimeout', (event, args) => {
   })
 })
 
-ipcMain.on('showSettings', () => {
-  mainWindow.webContents.send('showSettings')
-  mainWindow.show()
+ipcMain.on('showSettings', (event) => {
+  const parent = mainWindow
+  const dialogWidth = 500
+  const dialogHeight = 175
+  const dialog = new BrowserWindow({
+    title: 'Settings',
+    width: dialogWidth,
+    height: dialogHeight,
+    parent: parent,
+    modal: true,
+    alwaysOnTop: true,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      enableRemoteModule: true,
+      nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
+    }
+  })
+
+  const parentBounds = parent.getContentBounds()
+  const childBounds = {
+    x: parseInt((parentBounds.width / 2) - (dialogWidth / 2) + parentBounds.x),
+    y: parseInt((parentBounds.height / 2) - (dialogHeight / 2) + parentBounds.y),
+    width: dialogWidth,
+    height: dialogHeight
+  }
+
+  dialog.setContentBounds(childBounds)
+
+  const inputMenu = Menu.buildFromTemplate([
+    { role: 'undo' },
+    { role: 'redo' },
+    { type: 'separator' },
+    { role: 'cut' },
+    { role: 'copy' },
+    { role: 'paste' },
+    { type: 'separator' },
+    { role: 'selectall' }
+  ])
+
+  dialog.webContents.on('context-menu', (e, props) => {
+    const { isEditable } = props
+    if (isEditable) {
+      inputMenu.popup(dialog)
+    }
+  })
+
+  const path = '/#/settings'
+
+  loadURL(dialog, path, false)
+
+  dialog.show()
 })
 
 ipcMain.on('toggleControls', (event, args) => {
@@ -904,14 +870,22 @@ ipcMain.on('reloadAll', () => {
   })
 })
 
+const updateUsers = async () => {
+  const users = db.get('users').value()
+  const updates = []
+  for (const user of users) {
+    updates.push(updateUser(user, false))
+  }
+  return Promise.all(updates)
+}
+
 cron.schedule('0,5,10,15,20,25,30,35,40,45,50,55 * * * *', async function () {
   const start = new Date()
 
-  const users = db.get('users').value()
-  for (const user of users) {
-    await updateUser(user, false)
-  }
+  await updateUsers()
 
   const end = new Date() - start
   console.log(`Updating users took ${end}ms`)
 })
+
+updateUsers()

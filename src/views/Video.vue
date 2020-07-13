@@ -77,7 +77,13 @@ export default {
         controls: false,
         loadingSpinner: false,
         // fluid: true,
-        fill: true
+        fill: true,
+        html5: {
+          vhs: {
+            enableLowInitialPlaylist: true,
+            handlePartialData: true
+          }
+        }
       },
       videoFrameMenuOptions: [
         { id: 2, name: 'Reload' },
@@ -167,11 +173,11 @@ export default {
         type: 'application/x-mpegURL',
         src: source
       }
-      if (!this.player) return
-      this.player.reset() // in IE11 (mode IE10) direct usage of src() when <src> is already set, generated errors,
+      // if (!this.player) return
+      // this.player.reset() // in IE11 (mode IE10) direct usage of src() when <src> is already set, generated errors,
       this.player.src(video)
       // this.player.load()
-      this.player.play()
+      // this.player.play()
     },
     handleRightClick (event, item) {
       this.$refs.videoFrameMenu.showMenu(event, item)
@@ -225,7 +231,6 @@ export default {
       //   const h = video.videoHeight
       //   console.log({ w, h })
       remote.getCurrentWindow().setContentSize(480, 640)
-      console.log(this.videoUrl)
       // ipcRenderer.send('setWindowSize', { id: this.id, w, h, forceResize: true })
       // }
     })
@@ -237,8 +242,8 @@ export default {
     })
   },
   mounted () {
-    this.id = this.$route.params.id
-    this.name = this.$route.params.name
+    this.id = this.$route.query.id
+    this.name = this.$route.query.name
 
     this.player = videojs(this.$refs.videoPlayer, this.playerOptions, function onPlayerReady () {
     })

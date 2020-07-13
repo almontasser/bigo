@@ -4,19 +4,17 @@
       <video-item v-for="video in videos" :key="'v' + video.id" :id="video.id" :name="video.name"></video-item>
       <chat-item v-for="chat in chats" :key="'c' + chat.id" :id="chat.id" :name="chat.name"></chat-item>
     </div>
-    <a href="#" id="floating-btn1" class="floating-btn" @click="addFavDialog"><b-icon icon="person-plus-fill"></b-icon></a>
-    <a href="#" id="floating-btn2" class="floating-btn" v-on:click="toggleUsersSidebar"><b-icon icon="people-fill"></b-icon></a>
-    <a href="#" id="floating-btn3" class="floating-btn" v-on:click="toggleFavsSidebar"><b-icon icon="heart-fill"></b-icon></a>
-    <b-sidebar id="favs-sidebar" v-model="favsSidebarVisible" :backdrop="true" title="Favorites" shadow>
-      <div class="px-3 py-2">
-        <b-form-input class="my-2" v-model="favsSearch" placeholder="Search"></b-form-input>
-        <b-button size="sm" class="mb-2" @click="addFavDialog"><b-icon icon="person-plus-fill"></b-icon> Add User</b-button>
-        <vue-simple-context-menu
+    <div class="favs px-3 py-2">
+      <h3>Favorites</h3>
+      <vue-simple-context-menu
           :elementId="'favsMenu'"
           :options="favsMenuOptions"
           :ref="'favsMenu'"
           @option-clicked="favsOptionClicked"
         />
+        <b-form-input class="my-2" v-model="favsSearch" placeholder="Search"></b-form-input>
+        <b-button size="sm" class="mb-2" @click="addFavDialog"><b-icon icon="person-plus-fill"></b-icon> Add User</b-button>
+        <b-button size="sm" class="mb-2 ml-2" @click="refreshFavList"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
         <b-list-group>
           <b-list-group-item class="d-flex align-items-center" href="#" v-for="user in filteredFavs" :key="user.id" v-on:click="addVideo(user.id, user.customName); favsSidebarVisible=false" @contextmenu.prevent.stop="handleFavsRightClick($event, user)">
             <b-img rounded="circle" width=42 height=42 :src="user.thumb_img" style="margin-right: 10px;"></b-img>
@@ -25,48 +23,49 @@
             <span class="user-id">ID: {{user.id}}</span>
             <span class="user-views">Views: {{user.viewers}}</span>
             </p>
-            <b-badge v-if="user.live" style="margin-left: auto; background-color: lightgreen; color: lightgreen;" pill>.</b-badge>
+            <b-spinner v-if="user.updating" small label="Spinning" style="margin-left: auto; color: lightgreen;"></b-spinner>
+            <b-badge v-if="!user.updating && user.live" style="margin-left: auto; background-color: lightgreen; color: lightgreen;" pill>.</b-badge>
           </b-list-group-item>
         </b-list-group>
-      </div>
-    </b-sidebar>
-    <b-sidebar id="users-sidebar" v-model="usersSidebarVisible" width="765px" :backdrop="true" title="Live Users" shadow>
-      <div class="px-3 py-2">
-        <b-form-input class="my-2" v-model="usersSearch" placeholder="Search"></b-form-input>
-        <v-select class="my-2" v-model="usersCountry" :options="countries" @input="usersCountryChanged"></v-select>
-        <vue-simple-context-menu
-          :elementId="'usersMenu'"
-          :options="usersMenuOptions"
-          :ref="'usersMenu'"
-          @option-clicked="usersOptionClicked"
-        />
-        <ul style="padding-left: 0; margin-right: -10px;">
-          <li class="room_item" v-for="user in filteredUsers" :key="user.bigo_id" @contextmenu.prevent.stop="handleUsersRightClick($event, user)">
-            <a href="#" v-on:click="addVideo(user.bigo_id, user.nick_name); usersSidebarVisible=false">
-              <div class="host_photo">
-                <div class="image_shadow"></div>
-                <img :src="user.cover_l" alt="">
-                <!-- <img alt=""> -->
+    </div>
+    <div class="users px-3 py-2">
+      <h3>Live Users</h3>
+      <b-form inline>
+          <b-form-input class="my-2" v-model="usersSearch" placeholder="Search"></b-form-input>
+          <v-select class="my-2 ml-2" v-model="usersCountry" :options="countries" @input="usersCountryChanged"></v-select>
+          <b-button size="sm" class="my-2 ml-2" @click="refreshUsers"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
+      </b-form>
+      <vue-simple-context-menu
+        :elementId="'usersMenu'"
+        :options="usersMenuOptions"
+        :ref="'usersMenu'"
+        @option-clicked="usersOptionClicked"
+      />
+      <ul style="padding-left: 0; margin-right: -10px;">
+        <li class="room_item" v-for="user in filteredUsers" :key="user.bigo_id" @contextmenu.prevent.stop="handleUsersRightClick($event, user)">
+          <a href="#" v-on:click="addVideo(user.bigo_id, user.nick_name); usersSidebarVisible=false">
+            <div class="host_photo">
+              <div class="image_shadow"></div>
+              <img :src="user.cover_l" alt="">
+            </div>
+            <div class="recom_hover">
+              <p class="room_name">{{user.room_topic}}</p>
+              <div class="hosts_name_box">
+                <i class="hosts_name">
+                  <p class="text_name">
+                    {{user.nick_name}}
+                    <br/>
+                    {{user.bigo_id}}
+                  </p>
+                </i>
+                <i class="viewer_num"><b-icon icon="people-fill"></b-icon> {{user.user_count}}</i>
               </div>
-              <div class="recom_hover">
-                <p class="room_name">{{user.room_topic}}</p>
-                <div class="hosts_name_box">
-                  <i class="hosts_name">
-                    <p class="text_name">
-                      {{user.nick_name}}
-                      <br/>
-                      {{user.bigo_id}}
-                    </p>
-                  </i>
-                  <i class="viewer_num"><b-icon icon="people-fill"></b-icon> {{user.user_count}}</i>
-                </div>
-              </div>
-            </a>
-          </li>
-          <infinite-loading ref="infiniteLoader" spinner="waveDots" @infinite="infiniteHandler"></infinite-loading>
-        </ul>
-      </div>
-    </b-sidebar>
+            </div>
+          </a>
+        </li>
+        <infinite-loading ref="infiniteLoader" spinner="waveDots" @infinite="infiniteHandler"></infinite-loading>
+      </ul>
+    </div>
   </div>
 </template>
 
@@ -138,9 +137,13 @@ export default {
         ipcRenderer.send('showVideoWindow', { id: id })
       }
     },
-    toggleUsersSidebar () {
+    // toggleUsersSidebar () {
+    //   this.users = []
+    //   this.usersSidebarVisible = true
+    //   this.$refs.infiniteLoader.$emit('$InfiniteLoading:reset')
+    // },
+    refreshUsers () {
       this.users = []
-      this.usersSidebarVisible = true
       this.$refs.infiniteLoader.$emit('$InfiniteLoading:reset')
     },
     async usersCountryChanged () {
@@ -174,6 +177,10 @@ export default {
     },
     fetchFavsList () {
       ipcRenderer.send('getFavs')
+    },
+    refreshFavList () {
+      this.favs = this.favs.map(fav => ({ ...fav, updating: true }))
+      ipcRenderer.send('refreshFavs')
     },
     toggleFavsSidebar () {
       this.fetchFavsList()
@@ -226,6 +233,13 @@ export default {
       this.favs = args.favs
     })
 
+    ipcRenderer.on('fav', (event, args) => {
+      this.favs = this.favs.map(fav => {
+        if (fav.id === args.id) return args
+        return fav
+      })
+    })
+
     ipcRenderer.on('showSettings', (event, args) => {
       if (!this.showingSettings) {
         this.showingSettings = true
@@ -246,6 +260,7 @@ export default {
     })
   },
   async mounted () {
+    this.fetchFavsList()
     ipcRenderer.send('getCountries')
     ipcRenderer.send('getVideoRefreshTimeout')
   }
@@ -253,6 +268,33 @@ export default {
 </script>
 
 <style>
+
+input {
+  line-height: 1.5em !important;
+}
+
+.vs__dropdown-toggle {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  width: 300px;
+}
+
+.home {
+  display: flex;
+  height: 100%;
+}
+
+.favs {
+  flex: 0 0 429px;
+  overflow: auto;
+  /* height: 100%; */
+}
+
+.users {
+  flex-grow: 1;
+  overflow: auto;
+}
+
 #floating-btn1 {
   right: 20px;
   bottom: 20px;
@@ -367,13 +409,13 @@ export default {
   left: 0px;
   bottom: 0px;
   right: 10px;
-  height: 60px;
+  height: 100px;
+  padding-top: 55px;
   z-index: 9;
-  padding-top: 18px;
   overflow: hidden;
   border-bottom-left-radius: 3px;
   border-bottom-right-radius: 3px;
-  /* background: url(/opa.png) center top no-repeat; */
+  background: url(/images/opa.png) center top no-repeat;
 }
 
 .recom_hover .room_name {

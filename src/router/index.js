@@ -19,7 +19,7 @@ const routes = [
     component: () => import(/* webpackChunkName: "about" */ '../views/About.vue')
   },
   {
-    path: '/video/:id/:name',
+    path: '/video',
     name: 'Video',
     component: () => import(/* webpackChunkName: "about" */ '../views/Video.vue')
   },
@@ -42,6 +42,11 @@ const routes = [
     path: '/main-controls',
     name: 'MainControls',
     component: () => import(/* webpackChunkName: "about" */ '../views/MainControls.vue')
+  },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import(/* webpackChunkName: "about" */ '../views/SettingsDialog.vue')
   }
 ]
 
