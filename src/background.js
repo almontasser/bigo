@@ -241,7 +241,7 @@ const switchGiftCodeToURL = (giftCode) => {
 }
 
 const joinUrlAndNameToGiftIcon = (iconNumber) => {
-  return '<img src="' + switchGiftCodeToURL(iconNumber).url + '" />'
+  return '<img style="height:40px;" src="' + switchGiftCodeToURL(iconNumber).url + '" />'
 }
 
 const chatContentType = {
@@ -249,109 +249,142 @@ const chatContentType = {
   type2: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="user_text_content">===</span></li>',
   type3: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">shared this LIVE</span></li>',
   type4: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="user_text_content">sent<img src="/images/gift/like.png"></span></li>',
-  type5: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">became a Fan.Won\'t miss the next LIVE</span></li>',
+  type5: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">became a Fan. Won\'t miss the next LIVE</span></li>',
   type6: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">sent a&nbsp;===&nbsp;===&nbsp;X===</span></li>'
 }
 
 const createRoom = async (id) => {
-  const room = await getUserUrls(id)
-  room.id = id
-  if (room.wsUrl) {
-    room.ws = new WebSocket(room.wsUrl)
-    room.ws.on('message', (data) => {
-      try {
-        const arr = JSON.parse(data)
-
-        const arrLength = arr.length
-        let allWords = ''
-        for (let i = arrLength - 1; i >= 0; i--) {
-          const obj = arr[i]
-          switch (obj.c) {
-            case 0:
-              // Room End
-              if (room.cWin) room.cWin.webContents.send('roomEnded')
-              if (room.vWin) room.vWin.webContents.send('roomEnded')
-              break
-            case 1:
-              allWords += chatContentType.type2
-                .replace('===', switchGradeToColor(obj.grade))
-                .replace('===', obj.grade)
-                .replace('===', obj.data.n)
-                .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
-              break
-            case 2:
-              allWords += chatContentType.type1
-                .replace('===', 'Broadcaster will leave for a moment. Please hold on')
-              if (room.vWin) room.vWin.webContents.send('hold')
-              break
-            case 3:
-              allWords += chatContentType.type1
-                .replace('===', 'Broadcaster is back. LIVE is recovering')
-              if (room.vWin) room.vWin.webContents.send('resume')
-              break
-            case 4:
-              allWords += chatContentType.type3
-                .replace('===', switchGradeToColor(obj.grade))
-                .replace('===', obj.grade)
-                .replace('===', obj.data.m)
-              break
-            case 5:
-              // this.updataLiveCount(obj.data.m);
-              break
-            case 6:
-              // console.log(obj)
-              break
-            case 7:
-              // console.log(obj)
-              break
-            case 8:
-              allWords += chatContentType.type6
-                .replace('===', switchGradeToColor(obj.grade))
-                .replace('===', obj.grade)
-                .replace('===', obj.data.n)
-                .replace('===', switchGiftCodeToURL(obj.data.m).name)
-                .replace('===', joinUrlAndNameToGiftIcon(obj.data.m))
-                .replace('===', obj.data.c)
-              break
-            case 9:
-              allWords += chatContentType.type4
-                .replace('===', switchGradeToColor(obj.grade))
-                .replace('===', obj.grade)
-                .replace('===', obj.data.n)
-              break
-            case 10:
-              allWords += chatContentType.type5
-                .replace('===', switchGradeToColor(obj.grade))
-                .replace('===', obj.grade)
-                .replace('===', obj.data.m)
-              break
-            case 11:
-              allWords += chatContentType.type1
-                .replace('===', obj.data.m)
-              break
-            case 12:
-              allWords += chatContentType.type2
-                .replace('===', switchGradeToColor(obj.grade))
-                .replace('===', obj.grade)
-                .replace('===', obj.data.n)
-                .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
-              break
-            case 13:
-              // giftAnimationObject.giftAnimationStart(obj)
-              // this.updataBeans(obj.ticket)
-              break
-            case 14:
-              // console.log(obj)
-              break
-          }
-        }
-        if (allWords && room.cWin) {
-          room.cWin.webContents.send('message', allWords)
-        }
-      } catch (error) {
+  // const room = await getUserUrls(id)
+  const room = { id }
+  // room.id = id
+  room.updateWs = async () => {
+    const room = rooms.find(r => r.id === id)
+    if (!room) return
+    if (!room.roomEnded && (!room.ws || room.ws.readyState === WebSocket.CLOSED)) {
+      if (room.wsInterval) {
+        clearInterval(room.wsInterval)
+        delete room.wsInterval
       }
-    })
+      console.log('Create WebSocket')
+      const urls = await getUserUrls(id)
+      room.wsUrl = urls.wsUrl
+      room.videoUrl = urls.videoUrl
+      if (room.wsUrl) {
+        room.ws = new WebSocket(room.wsUrl)
+        room.ws.on('message', (data) => {
+          try {
+            const arr = JSON.parse(data)
+            if (data.includes('PK')) console.log(arr)
+            const arrLength = arr.length
+            let allWords = ''
+            for (let i = arrLength - 1; i >= 0; i--) {
+              const obj = arr[i]
+              switch (obj.c) {
+                case 0:
+                  // Room End
+                  if (room.cWin) room.cWin.webContents.send('roomEnded')
+                  if (room.vWin) room.vWin.webContents.send('roomEnded')
+                  room.roomEnded = true
+                  clearInterval(room.wsInterval)
+                  room.ws.close()
+                  break
+                case 1:
+                  allWords += chatContentType.type2
+                    .replace('===', switchGradeToColor(obj.grade))
+                    .replace('===', obj.grade)
+                    .replace('===', obj.data.n)
+                    .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                  break
+                case 2:
+                  allWords += chatContentType.type1
+                    .replace('===', 'Broadcaster will leave for a moment. Please hold on')
+                  if (room.vWin) room.vWin.webContents.send('hold')
+                  break
+                case 3:
+                  allWords += chatContentType.type1
+                    .replace('===', 'Broadcaster is back. LIVE is recovering')
+                  if (room.vWin) room.vWin.webContents.send('resume')
+                  break
+                case 4:
+                  allWords += chatContentType.type3
+                    .replace('===', switchGradeToColor(obj.grade))
+                    .replace('===', obj.grade)
+                    .replace('===', obj.data.m)
+                  break
+                case 5:
+                  // this.updataLiveCount(obj.data.m);
+                  break
+                case 6:
+                  // console.log(obj)
+                  break
+                case 7:
+                  // console.log(obj)
+                  break
+                case 8:
+                  allWords += chatContentType.type6
+                    .replace('===', switchGradeToColor(obj.grade))
+                    .replace('===', obj.grade)
+                    .replace('===', obj.data.n)
+                    .replace('===', switchGiftCodeToURL(obj.data.m).name)
+                    .replace('===', joinUrlAndNameToGiftIcon(obj.data.m))
+                    .replace('===', obj.data.c)
+                  break
+                case 9:
+                  allWords += chatContentType.type4
+                    .replace('===', switchGradeToColor(obj.grade))
+                    .replace('===', obj.grade)
+                    .replace('===', obj.data.n)
+                  break
+                case 10:
+                  allWords += chatContentType.type5
+                    .replace('===', switchGradeToColor(obj.grade))
+                    .replace('===', obj.grade)
+                    .replace('===', obj.data.m)
+                  break
+                case 11:
+                  allWords += chatContentType.type1
+                    .replace('===', obj.data.m)
+                  break
+                case 12:
+                  allWords += chatContentType.type2
+                    .replace('===', switchGradeToColor(obj.grade))
+                    .replace('===', obj.grade)
+                    .replace('===', obj.data.n)
+                    .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                  break
+                case 13:
+                  // giftAnimationObject.giftAnimationStart(obj)
+                  // this.updataBeans(obj.ticket)
+                  break
+                case 14:
+                  // console.log(obj)
+                  break
+              }
+            }
+            if (allWords && room.cWin) {
+              room.cWin.webContents.send('message', allWords)
+            }
+          } catch (error) {
+          }
+        })
+
+        // room.ws.on('error', (error) => {
+        //   room.cWin.webContents.send('message', 'error: ' + error)
+        // })
+
+        room.ws.on('close', (code, reason) => {
+          console.log('Websocket Closed')
+          // room.cWin.webContents.send('message', 'code: ' + code + ' reason: ' + reason)
+        })
+      }
+    }
+    if (!room.wsInterval) {
+      room.wsInterval = setInterval(() => {
+        room.updateWs()
+      }, 1000)
+    }
   }
+
   return room
 }
 
@@ -373,15 +406,46 @@ ipcMain.on('createChatWindow', async (event, args) => {
     }
   })
   cWin.setMenu(null)
-  // cWin.menuBarVisible = false
+
+  const controlsWidth = 71
+  const controlsHeight = 29
+  const controls = new BrowserWindow({
+    parent: cWin,
+    hasShadow: false,
+    resizable: false,
+    width: controlsWidth,
+    height: controlsHeight,
+    useContentSize: true,
+    frame: false,
+    transparent: true,
+    webPreferences: {
+      enableRemoteModule: true,
+      nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
+    }
+  })
+  loadURL(controls, '/#/chat-controls?id=' + encodeURIComponent(args.id), false)
+  controls.show()
+
+  const moveControlsWindow = () => {
+    if (cWin && controls) {
+      const position = cWin.getPosition()
+      const winSize = cWin.getSize()
+      controls.setPosition(position[0] + winSize[0] - controlsWidth - 145, position[1] + 1)
+    }
+  }
+
+  moveControlsWindow()
+
+  cWin.on('move', moveControlsWindow)
+  cWin.on('resize', moveControlsWindow)
 
   if (!room) {
     room = await createRoom(args.id)
+    rooms.push(room)
+    await room.updateWs()
   }
 
   room.cWin = cWin
-
-  rooms.push(room)
 
   const path = `/#/chat?id=${encodeURIComponent(args.id)}&name=${encodeURIComponent(args.name)}`
   loadURL(cWin, path, true)
@@ -456,13 +520,13 @@ ipcMain.on('createVideoWindow', async (event, args) => {
 
   if (!room) {
     room = await createRoom(args.id)
+    rooms.push(room)
+    await room.updateWs()
     room.aspect = 480 / 640
   }
 
   room.vWin = vWin
   room.vWinControls = controls
-
-  rooms.push(room)
 
   const path = `/#/video?id=${encodeURIComponent(args.id)}&name=${encodeURIComponent(args.name)}`
   loadURL(vWin, path, true)
@@ -671,6 +735,7 @@ const getUserViewers = (wsUrl) => {
       try {
         const j = JSON.parse(data)
         if (j[0] && j[0].c === 5) {
+          ws.close()
           resolve(j[0].data.m)
         }
       } catch (error) {
@@ -868,6 +933,20 @@ ipcMain.on('reloadAll', () => {
   rooms.forEach(room => {
     if (room.vWin) room.vWin.reload()
   })
+})
+
+ipcMain.on('increaseFontSize', (event, args) => {
+  const room = rooms.find(r => r.id === args.id)
+  if (room && room.cWin) {
+    room.cWin.webContents.send('increaseFontSize')
+  }
+})
+
+ipcMain.on('decreaseFontSize', (event, args) => {
+  const room = rooms.find(r => r.id === args.id)
+  if (room && room.cWin) {
+    room.cWin.webContents.send('decreaseFontSize')
+  }
 })
 
 const updateUsers = async () => {

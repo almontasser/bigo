@@ -6,6 +6,7 @@ import { BootstrapVue, IconsPlugin } from 'bootstrap-vue'
 import VueSimpleContextMenu from 'vue-simple-context-menu'
 import InfiniteLoading from 'vue-infinite-loading'
 import vSelect from 'vue-select'
+import VueChatScroll from 'vue-chat-scroll'
 
 import 'bootstrap/dist/css/bootstrap.css'
 import 'bootstrap-vue/dist/bootstrap-vue.css'
@@ -21,6 +22,7 @@ Vue.use(IconsPlugin)
 Vue.component('vue-simple-context-menu', VueSimpleContextMenu)
 Vue.use(InfiniteLoading, { /* options */ })
 Vue.component('v-select', vSelect)
+Vue.use(VueChatScroll)
 
 new Vue({
   router,

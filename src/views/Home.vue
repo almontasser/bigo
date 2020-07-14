@@ -30,10 +30,10 @@
     </div>
     <div class="users px-3 py-2">
       <h3>Live Users</h3>
-      <b-form inline>
-          <b-form-input class="my-2" v-model="usersSearch" placeholder="Search"></b-form-input>
-          <v-select class="my-2 ml-2" v-model="usersCountry" :options="countries" @input="usersCountryChanged"></v-select>
-          <b-button size="sm" class="my-2 ml-2" @click="refreshUsers"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
+      <b-form inline class="mb-2">
+          <b-form-input  v-model="usersSearch" placeholder="Search"></b-form-input>
+          <v-select class="ml-2" v-model="usersCountry" :options="countries" @input="usersCountryChanged"></v-select>
+          <b-button size="sm" class="ml-2" @click="refreshUsers"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
       </b-form>
       <vue-simple-context-menu
         :elementId="'usersMenu'"

@@ -1,8 +1,18 @@
 <template>
-  <div class="chat_box" ref="chatBox">
-    <ul class="chat_list">
+  <div class="chat_box">
+    <ul class="chat_list" :style="{ 'font-size': fontSize + 'px' }" ref="chatList" v-chat-scroll="{always: false, smooth: false}" @scroll="onChatListScroll">
       <span v-for="(chat, index) in chats" :key="index" v-html="chat"></span>
     </ul>
+    <b-button
+      v-show="scrollDownVisible"
+      id="scrollDown"
+      size="lg"
+      variant="light"
+      :squared="true"
+      @click="onScrollDownClick"
+      >
+        <b-icon icon="arrow-down-square-fill"></b-icon>
+      </b-button>
   </div>
 </template>
 
@@ -15,26 +25,50 @@ export default {
       id: '',
       name: '',
       ws: null,
-      chats: []
+      chats: [],
+      chatList: null,
+      scrollDownVisible: false,
+      fontSize: 14
+    }
+  },
+  methods: {
+    onChatListScroll () {
+      this.scrollDownVisible = this.chatList.scrollTop < this.chatList.scrollHeight - this.chatList.clientHeight
+    },
+    onScrollDownClick () {
+      this.chatList.scrollTop = this.chatList.scrollHeight
     }
   },
   created () {
     ipcRenderer.on('message', (event, args) => {
-      const chatBox = this.$refs.chatBox
-      console.log('scrollTop: ' + chatBox.scrollTop)
-      console.log('\nscrollHeight: ' + chatBox.scrollHeight)
-      const shuldScroll = chatBox.scrollTop === chatBox.scrollHeight - chatBox.clientHeight
+      // const chatBox = this.$refs.chatBox
+      // console.log('scrollTop: ' + chatBox.scrollTop)
+      // console.log('\nscrollHeight: ' + chatBox.scrollHeight)
+      // const shuldScroll = chatBox.scrollTop === chatBox.scrollHeight - chatBox.clientHeight
       this.chats.push(args)
-      if (shuldScroll) {
-        this.$nextTick(() => {
-          chatBox.scrollTop = chatBox.scrollHeight
-        })
-      }
+      // if (shuldScroll) {
+      //   this.$nextTick(() => {
+      //     chatBox.scrollTop = chatBox.scrollHeight
+      //   })
+      // }
+    })
+
+    ipcRenderer.on('roomEnded', () => {
+      this.chats.push('ROOM ENDED')
+    })
+
+    ipcRenderer.on('decreaseFontSize', (event, args) => {
+      this.fontSize = this.fontSize - 1
+    })
+
+    ipcRenderer.on('increaseFontSize', (event, args) => {
+      this.fontSize = this.fontSize + 1
     })
   },
   mounted () {
     this.id = this.$route.query.id
     this.name = this.$route.query.name
+    this.chatList = this.$refs.chatList
   }
 }
 </script>
@@ -63,6 +97,10 @@ export default {
 }
 
 .chat_box {
+  height: 100%;
+}
+
+.chat_list {
   overflow: auto;
   height: 100%;
 }
@@ -83,17 +121,17 @@ export default {
 }
 .chat_list .grade_num{
   display: block;
-  width: 20px;
-  height: 20px;
-  border-radius: 20px;
+  width: 1.4em;
+  height: 1.4em;
+  border-radius: 1.4em;
   background: #00ddcc;
   color: #fff;
   text-align: center;
-  line-height: 20px;
-  font-size: 13px;
+  line-height: 1.5em;
+  font-size: 1.2em;
 }
 .chat_list .user_name{
-  font-size: 14px;
+  font-size: 1.2em;
   font-family: 'sans_500';
   color: #2e2e2e;
   margin:0 5px 0 0;
@@ -107,13 +145,13 @@ export default {
   list-style: none;
 }
 .chat_list .user_text_content{
-  font-size: 14px;
+  font-size: 1.2em;
   color: #666666;
   /*word-break: break-all;*/
   font-family: 'sans_300';
 }
 .chat_list .room_notice{
-  font-size: 14px;
+  font-size: 1.2em;
   color: #00ddcc;
   font-family: 'sans_500';
 }
@@ -125,7 +163,14 @@ export default {
 }
 .chat_list .name_dot_chat{
   font-family: 'sans_500';
-  font-size: 16px;
+  font-size: 1.4em;
   color: #666;
 }
+
+#scrollDown {
+  position: absolute;
+  right: 25px;
+  bottom: 10px;
+}
+
 </style>

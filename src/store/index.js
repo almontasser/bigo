@@ -59,7 +59,7 @@ export default new Vuex.Store({
   modules: {
   },
   plugins: [
-    createPersistedState(),
-    createSharedMutations()
+    createSharedMutations(),
+    createPersistedState()
   ]
 })
