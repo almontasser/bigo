@@ -1,6 +1,6 @@
 'use strict'
 
-import { app, protocol, BrowserWindow, ipcMain, Menu } from 'electron'
+import { app, protocol, BrowserWindow, ipcMain, Menu, session } from 'electron'
 import { createProtocol } from 'vue-cli-plugin-electron-builder/lib'
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
 import lowdb from 'lowdb'
@@ -12,6 +12,7 @@ import cheerio from 'cheerio'
 import WebSocket from 'ws'
 import cron from 'node-cron'
 import os from 'os'
+import AwaitLock from 'await-lock'
 
 import './store'
 
@@ -24,6 +25,249 @@ let rooms = []
 let appQuiting = false
 let giftJSONLikeArr = []
 
+const updateRoomLock = new AwaitLock()
+const getRoomLock = new AwaitLock()
+const refreshRoomLock = new AwaitLock()
+
+const switchGradeToColor = (lev) => {
+  const arrColor = ['#78dbc7', '#6bc9e3', '#799bec', '#a28ded', '#da8dee', '#f393d9', '#fd9ebd', '#fd809e', '#f26283']
+  var index = 0
+  if (lev <= 33) {
+    if (lev <= 11) {
+      index = 1
+    } else if (lev <= 22) {
+      index = 2
+    } else {
+      index = 3
+    }
+  } else if (lev <= 55) {
+    if (lev <= 44) {
+      index = 4
+    } else {
+      index = 5
+    }
+  } else if (lev <= 77) {
+    if (lev <= 66) {
+      index = 6
+    } else {
+      index = 7
+    }
+  } else {
+    if (lev <= 88) {
+      index = 8
+    } else {
+      index = 9
+    }
+  }
+  return arrColor[index]
+}
+
+const switchGiftCodeToURL = (giftCode) => {
+  var allGiftArr = giftJSONLikeArr
+  var targetGift = {}
+  targetGift.name = 'gift'
+  targetGift.url = '/images/favicon.ico'
+  for (var i = 0, len = allGiftArr.length; i < len; i++) {
+    if (+allGiftArr[i].typeid === +giftCode) {
+      targetGift.url = allGiftArr[i].img_url
+      targetGift.name = allGiftArr[i].name
+      return targetGift
+    }
+  }
+  return targetGift
+}
+
+const joinUrlAndNameToGiftIcon = (iconNumber) => {
+  return '<img style="height:40px;" src="' + switchGiftCodeToURL(iconNumber).url + '" />'
+}
+
+const chatContentType = {
+  type1: '<li><p class="room_notice public_notice">===</p></li>',
+  type2: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="user_text_content">===</span></li>',
+  type3: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">shared this LIVE</span></li>',
+  type4: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="user_text_content">sent<img src="/images/gift/like.png"></span></li>',
+  type5: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">became a Fan. Won\'t miss the next LIVE</span></li>',
+  type6: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">sent a&nbsp;===&nbsp;===&nbsp;X===</span></li>'
+}
+
+const getRoom = async (id, create) => {
+  await getRoomLock.acquireAsync()
+  try {
+    let room = rooms.find(r => r.id === id)
+    if (room) return room
+    if (create) {
+      const user = await getUserDetails({ id })
+      room = {
+        id,
+        wsUrl: user.wsUrl,
+        videoUrl: user.videoUrl,
+        bc_gid: user.bc_gid,
+        owner: user.owner,
+        account: null,
+        updateWs: async () => {
+          await refreshRoomLock.acquireAsync()
+          try {
+            console.log('inside updateWs')
+            let room = await getRoom(id)
+            if (!room) return
+            if (!room.roomEnded && (!room.ws || room.ws.readyState === WebSocket.CLOSED)) {
+              console.log('Create WebSocket')
+              const urls = await getUserUrls(id)
+              room = await updateRoom({ id: room.id, wsUrl: urls.wsUrl, videoUrl: urls.videoUrl })
+              if (room.wsUrl) {
+                if (room.cWin) {
+                  room.cWin.webContents.send('roomStatus', { online: true })
+                }
+                const ws = new WebSocket(room.wsUrl)
+                ws.on('open', () => {
+                  room.ws.send('websocket')
+                })
+                ws.on('message', async (data) => {
+                  try {
+                    const arr = JSON.parse(data)
+                    if (data.includes('PK')) console.log(arr)
+                    if (data.includes('Mahmoud')) console.log(arr)
+                    const arrLength = arr.length
+                    let allWords = ''
+                    for (let i = arrLength - 1; i >= 0; i--) {
+                      const obj = arr[i]
+                      switch (obj.c) {
+                        case 0:
+                          // Room End
+                          if (room.cWin) room.cWin.webContents.send('roomEnded')
+                          if (room.vWin) room.vWin.webContents.send('roomEnded')
+                          room.roomEnded = true
+                          if (room.wsTimeout) {
+                            clearTimeout(room.wsTimeout)
+                            room = await updateRoom({ id: room.id, wsTimeout: null })
+                          }
+                          room.ws.close()
+                          break
+                        case 1:
+                          allWords += chatContentType.type2
+                            .replace('===', switchGradeToColor(obj.grade))
+                            .replace('===', obj.grade)
+                            .replace('===', obj.data.n)
+                            .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                          break
+                        case 2:
+                          allWords += chatContentType.type1
+                            .replace('===', 'Broadcaster will leave for a moment. Please hold on')
+                          if (room.vWin) room.vWin.webContents.send('hold')
+                          break
+                        case 3:
+                          allWords += chatContentType.type1
+                            .replace('===', 'Broadcaster is back. LIVE is recovering')
+                          if (room.vWin) room.vWin.webContents.send('resume')
+                          break
+                        case 4:
+                          allWords += chatContentType.type3
+                            .replace('===', switchGradeToColor(obj.grade))
+                            .replace('===', obj.grade)
+                            .replace('===', obj.data.m)
+                          break
+                        case 5:
+                          // this.updataLiveCount(obj.data.m);
+                          break
+                        case 6:
+                          // console.log(obj)
+                          break
+                        case 7:
+                          // console.log(obj)
+                          break
+                        case 8:
+                          allWords += chatContentType.type6
+                            .replace('===', switchGradeToColor(obj.grade))
+                            .replace('===', obj.grade)
+                            .replace('===', obj.data.n)
+                            .replace('===', switchGiftCodeToURL(obj.data.m).name)
+                            .replace('===', joinUrlAndNameToGiftIcon(obj.data.m))
+                            .replace('===', obj.data.c)
+                          break
+                        case 9:
+                          allWords += chatContentType.type4
+                            .replace('===', switchGradeToColor(obj.grade))
+                            .replace('===', obj.grade)
+                            .replace('===', obj.data.n)
+                          break
+                        case 10:
+                          allWords += chatContentType.type5
+                            .replace('===', switchGradeToColor(obj.grade))
+                            .replace('===', obj.grade)
+                            .replace('===', obj.data.m)
+                          break
+                        case 11:
+                          allWords += chatContentType.type1
+                            .replace('===', obj.data.m)
+                          break
+                        case 12:
+                          allWords += chatContentType.type2
+                            .replace('===', switchGradeToColor(obj.grade))
+                            .replace('===', obj.grade)
+                            .replace('===', obj.data.n)
+                            .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+                          break
+                        case 13:
+                          // giftAnimationObject.giftAnimationStart(obj)
+                          // this.updataBeans(obj.ticket)
+                          break
+                        case 14:
+                          // console.log(obj)
+                          break
+                      }
+                    }
+                    if (allWords && room.cWin) {
+                      room.cWin.webContents.send('message', allWords)
+                    }
+                  } catch (error) {
+                  }
+                })
+
+                // room.ws.on('error', (error) => {
+                //   room.cWin.webContents.send('message', 'error: ' + error)
+                // })
+
+                ws.on('close', (code, reason) => {
+                  console.log('Websocket Closed')
+                  room.wsTimeout = setTimeout(async () => {
+                    room.wsTimeout = null
+                    await room.updateWs()
+                  }, 1000)
+                })
+                room = await updateRoom({ id: room.id, ws })
+              } else {
+                if (room.cWin) {
+                  room.cWin.webContents.send('roomStatus', { online: false })
+                }
+                return
+              }
+            }
+          } finally {
+            refreshRoomLock.release()
+          }
+        }
+      }
+
+      rooms.push(room)
+      return room
+    }
+    return null
+  } finally {
+    getRoomLock.release()
+  }
+}
+
+const updateRoom = async (room) => {
+  await updateRoomLock.acquireAsync()
+  try {
+    const oldRoom = await getRoom(room.id, true)
+    Object.assign(oldRoom, room)
+    return oldRoom
+  } finally {
+    updateRoomLock.release()
+  }
+}
+
 // Scheme must be registered before the app is ready
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { secure: true, standard: true } }
@@ -34,7 +278,7 @@ const homeDir = os.homedir()
 const adapter = new FileSync(homeDir + '\\AppData\\Roaming\\bigo\\db.json')
 // const adapter = new LocalStorage('db')
 const db = lowdb(adapter)
-db.defaults({ users: [], videoRefreshTimeout: 5000 }).write()
+db.defaults({ users: [], videoRefreshTimeout: 5000, accounts: [] }).write()
 
 function loadURL (window, path, showDevTools) {
   if (process.env.WEBPACK_DEV_SERVER_URL) {
@@ -60,7 +304,7 @@ function createWindow () {
   })
   mainWindow.maximize()
 
-  const controlsWidth = 71
+  const controlsWidth = 140
   const controlsHeight = 29
   const controls = new BrowserWindow({
     parent: mainWindow,
@@ -127,6 +371,10 @@ app.on('activate', () => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.on('ready', async () => {
+  app.userAgentFallback = app.userAgentFallback
+    .replace(/ Electron\\?.([^\s]+)/g, '')
+    .replace(/Chrome\\?.([^\s]+)/g, '')
+    // .replace(/Chrome\\?.([^\s]+)/g, 'Chrome/83.0.4103.116')
   if (isDevelopment && !process.env.IS_TEST) {
     // Install Vue Devtools
     try {
@@ -192,202 +440,6 @@ ipcMain.on('getUsers', async (event, args) => {
   mainWindow.webContents.send('users', await res.json())
 })
 
-const switchGradeToColor = (lev) => {
-  const arrColor = ['#78dbc7', '#6bc9e3', '#799bec', '#a28ded', '#da8dee', '#f393d9', '#fd9ebd', '#fd809e', '#f26283']
-  var index = 0
-  if (lev <= 33) {
-    if (lev <= 11) {
-      index = 1
-    } else if (lev <= 22) {
-      index = 2
-    } else {
-      index = 3
-    }
-  } else if (lev <= 55) {
-    if (lev <= 44) {
-      index = 4
-    } else {
-      index = 5
-    }
-  } else if (lev <= 77) {
-    if (lev <= 66) {
-      index = 6
-    } else {
-      index = 7
-    }
-  } else {
-    if (lev <= 88) {
-      index = 8
-    } else {
-      index = 9
-    }
-  }
-  return arrColor[index]
-}
-
-const switchGiftCodeToURL = (giftCode) => {
-  var allGiftArr = giftJSONLikeArr
-  var targetGift = {}
-  targetGift.name = 'gift'
-  targetGift.url = '/images/favicon.ico'
-  for (var i = 0, len = allGiftArr.length; i < len; i++) {
-    if (+allGiftArr[i].typeid === +giftCode) {
-      targetGift.url = allGiftArr[i].img_url
-      targetGift.name = allGiftArr[i].name
-      return targetGift
-    }
-  }
-  return targetGift
-}
-
-const joinUrlAndNameToGiftIcon = (iconNumber) => {
-  return '<img style="height:40px;" src="' + switchGiftCodeToURL(iconNumber).url + '" />'
-}
-
-const chatContentType = {
-  type1: '<li><p class="room_notice public_notice">===</p></li>',
-  type2: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="user_text_content">===</span></li>',
-  type3: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">shared this LIVE</span></li>',
-  type4: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="user_text_content">sent<img src="/images/gift/like.png"></span></li>',
-  type5: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">became a Fan. Won\'t miss the next LIVE</span></li>',
-  type6: '<li><span class="user_grade"><p class="grade_num" style="background:===;">===</p></span><span class="user_name">===</span><i class="name_dot_chat">：</i><span class="room_notice">sent a&nbsp;===&nbsp;===&nbsp;X===</span></li>'
-}
-
-const createRoom = async (id) => {
-  // const room = await getUserUrls(id)
-  const room = { id }
-  // room.id = id
-  room.updateWs = async () => {
-    const room = rooms.find(r => r.id === id)
-    if (!room) return
-    if (!room.roomEnded && (!room.ws || room.ws.readyState === WebSocket.CLOSED)) {
-      if (room.wsInterval) {
-        clearInterval(room.wsInterval)
-        delete room.wsInterval
-      }
-      console.log('Create WebSocket')
-      const urls = await getUserUrls(id)
-      room.wsUrl = urls.wsUrl
-      room.videoUrl = urls.videoUrl
-      if (room.wsUrl) {
-        room.ws = new WebSocket(room.wsUrl)
-        room.ws.on('message', (data) => {
-          try {
-            const arr = JSON.parse(data)
-            if (data.includes('PK')) console.log(arr)
-            const arrLength = arr.length
-            let allWords = ''
-            for (let i = arrLength - 1; i >= 0; i--) {
-              const obj = arr[i]
-              switch (obj.c) {
-                case 0:
-                  // Room End
-                  if (room.cWin) room.cWin.webContents.send('roomEnded')
-                  if (room.vWin) room.vWin.webContents.send('roomEnded')
-                  room.roomEnded = true
-                  clearInterval(room.wsInterval)
-                  room.ws.close()
-                  break
-                case 1:
-                  allWords += chatContentType.type2
-                    .replace('===', switchGradeToColor(obj.grade))
-                    .replace('===', obj.grade)
-                    .replace('===', obj.data.n)
-                    .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
-                  break
-                case 2:
-                  allWords += chatContentType.type1
-                    .replace('===', 'Broadcaster will leave for a moment. Please hold on')
-                  if (room.vWin) room.vWin.webContents.send('hold')
-                  break
-                case 3:
-                  allWords += chatContentType.type1
-                    .replace('===', 'Broadcaster is back. LIVE is recovering')
-                  if (room.vWin) room.vWin.webContents.send('resume')
-                  break
-                case 4:
-                  allWords += chatContentType.type3
-                    .replace('===', switchGradeToColor(obj.grade))
-                    .replace('===', obj.grade)
-                    .replace('===', obj.data.m)
-                  break
-                case 5:
-                  // this.updataLiveCount(obj.data.m);
-                  break
-                case 6:
-                  // console.log(obj)
-                  break
-                case 7:
-                  // console.log(obj)
-                  break
-                case 8:
-                  allWords += chatContentType.type6
-                    .replace('===', switchGradeToColor(obj.grade))
-                    .replace('===', obj.grade)
-                    .replace('===', obj.data.n)
-                    .replace('===', switchGiftCodeToURL(obj.data.m).name)
-                    .replace('===', joinUrlAndNameToGiftIcon(obj.data.m))
-                    .replace('===', obj.data.c)
-                  break
-                case 9:
-                  allWords += chatContentType.type4
-                    .replace('===', switchGradeToColor(obj.grade))
-                    .replace('===', obj.grade)
-                    .replace('===', obj.data.n)
-                  break
-                case 10:
-                  allWords += chatContentType.type5
-                    .replace('===', switchGradeToColor(obj.grade))
-                    .replace('===', obj.grade)
-                    .replace('===', obj.data.m)
-                  break
-                case 11:
-                  allWords += chatContentType.type1
-                    .replace('===', obj.data.m)
-                  break
-                case 12:
-                  allWords += chatContentType.type2
-                    .replace('===', switchGradeToColor(obj.grade))
-                    .replace('===', obj.grade)
-                    .replace('===', obj.data.n)
-                    .replace('===', obj.data.m.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
-                  break
-                case 13:
-                  // giftAnimationObject.giftAnimationStart(obj)
-                  // this.updataBeans(obj.ticket)
-                  break
-                case 14:
-                  // console.log(obj)
-                  break
-              }
-            }
-            if (allWords && room.cWin) {
-              room.cWin.webContents.send('message', allWords)
-            }
-          } catch (error) {
-          }
-        })
-
-        // room.ws.on('error', (error) => {
-        //   room.cWin.webContents.send('message', 'error: ' + error)
-        // })
-
-        room.ws.on('close', (code, reason) => {
-          console.log('Websocket Closed')
-          // room.cWin.webContents.send('message', 'code: ' + code + ' reason: ' + reason)
-        })
-      }
-    }
-    if (!room.wsInterval) {
-      room.wsInterval = setInterval(() => {
-        room.updateWs()
-      }, 1000)
-    }
-  }
-
-  return room
-}
-
 ipcMain.on('createChatWindow', async (event, args) => {
   let room = rooms.find(r => r.id === args.id)
   if (room && room.cWin) {
@@ -439,25 +491,26 @@ ipcMain.on('createChatWindow', async (event, args) => {
   cWin.on('move', moveControlsWindow)
   cWin.on('resize', moveControlsWindow)
 
-  if (!room) {
-    room = await createRoom(args.id)
-    rooms.push(room)
-    await room.updateWs()
-  }
-
-  room.cWin = cWin
+  if (!room) room = await getRoom(args.id, true)
+  room = await updateRoom({ id: room.id, cWin: cWin })
+  await room.updateWs()
 
   const path = `/#/chat?id=${encodeURIComponent(args.id)}&name=${encodeURIComponent(args.name)}`
   loadURL(cWin, path, true)
 
   cWin.setTitle(`Chat: ${args.id} - ${args.name}`)
 
-  cWin.on('closed', () => {
+  cWin.on('closed', async () => {
+    leaveGroup(room)
     if (!appQuiting) {
       mainWindow.webContents.send('removeChat', args.id)
       delete room.cWin
       if (!room.vWin) {
-        if (room.ws) room.ws.close()
+        if (room.ws) {
+          if (room.wsTimeout) clearTimeout(room.wsTimeout)
+          room = await updateRoom({ id: room.id, wsTimeout: null, roomEnded: true })
+          room.ws.close()
+        }
         rooms = rooms.filter(r => r.id !== args.id)
       }
     }
@@ -465,7 +518,7 @@ ipcMain.on('createChatWindow', async (event, args) => {
 })
 
 ipcMain.on('createVideoWindow', async (event, args) => {
-  let room = rooms.find(v => v.id === args.id)
+  let room = rooms.find(r => r.id === args.id)
   if (room && room.vWin) {
     room.vWin.show()
     return
@@ -518,27 +571,26 @@ ipcMain.on('createVideoWindow', async (event, args) => {
 
   vWin.setMenu(null)
 
-  if (!room) {
-    room = await createRoom(args.id)
-    rooms.push(room)
-    await room.updateWs()
-    room.aspect = 480 / 640
-  }
+  if (!room) room = await getRoom(args.id, true)
 
-  room.vWin = vWin
-  room.vWinControls = controls
+  room = await updateRoom({ id: room.id, aspect: 480 / 640, vWin })
+  await room.updateWs()
 
   const path = `/#/video?id=${encodeURIComponent(args.id)}&name=${encodeURIComponent(args.name)}`
   loadURL(vWin, path, true)
 
   vWin.setTitle(`${args.id} - ${args.name}`)
 
-  vWin.on('closed', () => {
+  vWin.on('closed', async () => {
     if (!appQuiting) {
       mainWindow.webContents.send('removeVideo', args.id)
       delete room.vWin
       if (!room.cWin) {
-        if (room.ws) room.ws.close()
+        if (room.ws) {
+          if (room.wsTimeout) clearTimeout(room.wsTimeout)
+          room = await updateRoom({ id: room.id, wsTimeout: null, roomEnded: true })
+          room.ws.close()
+        }
         rooms = rooms.filter(r => r.id !== args.id)
       }
     }
@@ -647,8 +699,8 @@ ipcMain.on('getVideoUrl', async (event, args) => {
   event.sender.send('videoUrl', await getUserUrls(args))
 })
 
-ipcMain.on('closeVideo', (event, args) => {
-  const room = rooms.find(v => v.id === args)
+ipcMain.on('closeVideo', async (event, args) => {
+  const room = await getRoom(args.id)
   if (room) {
     room.vWin.close()
   }
@@ -748,7 +800,29 @@ const pushFavs = () => {
   mainWindow.webContents.send('favs', { favs: db.get('users').toJSON() })
 }
 
-const updateUser = async (user, createIfNotExists) => {
+const getUserDetails = async (user) => {
+  const urls = await getUserUrls(user.id)
+  user.live = urls.wsUrl !== ''
+  user.wsUrl = urls.wsUrl
+  user.videoUrl = urls.videoUrl
+  user.viewers = '0'
+  user.lastUpdate = new Date()
+  if (!user.live) return user
+
+  const res = await axios.get('http://www.bigo.tv/' + user.id)
+  const $ = cheerio.load(res.data)
+  user.name = $('h3.hosts_name').text()
+  const broadcastID = $('#hosts_id_e').attr('host-other').split('&')
+  user.bc_gid = broadcastID[0]
+  user.owner = broadcastID[1]
+  user.beans = $('#beans_e').text()
+  user.viewers = await getUserViewers(urls.wsUrl)
+  user.country = $('#country_e').text()
+  user.thumb_img = $('img.thumb_img').first().attr('src')
+  return user
+}
+
+const updateUser = async (user) => {
   const u = db.get('users').find({ id: user.id })
   if (u.value()) {
     if (new Date() - new Date(u.value().lastUpdate) < 500) {
@@ -756,40 +830,15 @@ const updateUser = async (user, createIfNotExists) => {
     }
   }
 
-  const urls = await getUserUrls(user.id)
-  if (!createIfNotExists && !u.value()) {
-    user.wsUrl = urls.wsUrl
-    user.videoUrl = urls.videoUrl
-  } else {
-    if (urls.wsUrl !== '') {
-      // user is live
-      const res = await axios.get('http://www.bigo.tv/' + user.id)
-      const $ = cheerio.load(res.data)
-      user.name = $('h3.hosts_name').text()
-      if (!user.customName) user.customName = user.name
-      user.beans = $('#beans_e').text()
-      user.viewers = await getUserViewers(urls.wsUrl)
-      user.country = $('#country_e').text()
-      user.thumb_img = $('img.thumb_img').first().attr('src')
+  const customName = user.customName
+  user = await getUserDetails(user)
+  if (customName) user.customName = customName
+  else if (!u.value() || !u.value().customName) user.customName = user.name
 
-      user.live = true
-      user.wsUrl = urls.wsUrl
-      user.videoUrl = urls.videoUrl
-    } else {
-      // user is not live
-      user.live = false
-      user.wsUrl = ''
-      user.videoUrl = ''
-      user.viewers = '0'
-    }
+  if (u.value()) u.assign(user).write()
+  else db.get('users').push(user).write()
 
-    user.lastUpdate = new Date()
-
-    if (u.value()) u.assign(user).write()
-    else db.get('users').push(user).write()
-
-    mainWindow.webContents.send('fav', user)
-  }
+  if (mainWindow) mainWindow.webContents.send('fav', user)
 
   return user
 }
@@ -808,7 +857,7 @@ ipcMain.on('addFav', (event, args) => {
       pushFavs()
     }
   } else {
-    updateUser({ id, customName: name }, true)
+    updateUser({ id, customName: name })
   }
 })
 
@@ -828,13 +877,13 @@ ipcMain.on('deleteFav', (event, args) => {
   pushFavs()
 })
 
-ipcMain.on('showVideoWindow', (event, args) => {
-  const room = rooms.find(r => r.id === args.id)
+ipcMain.on('showVideoWindow', async (event, args) => {
+  const room = await getRoom(args.id)
   if (room && room.vWin) room.vWin.show()
 })
 
-ipcMain.on('showChatWindow', (event, args) => {
-  const room = rooms.find(r => r.id === args.id)
+ipcMain.on('showChatWindow', async (event, args) => {
+  const room = await getRoom(args.id)
   if (room && room.cWin) room.cWin.show()
 })
 
@@ -906,23 +955,23 @@ ipcMain.on('showSettings', (event) => {
   dialog.show()
 })
 
-ipcMain.on('toggleControls', (event, args) => {
-  const room = rooms.find(r => r.id === args.id)
+ipcMain.on('toggleControls', async (event, args) => {
+  const room = await getRoom(args.id)
   if (room && room.vWin) {
     room.vWin.webContents.send('toggleControls')
   }
 })
 
-ipcMain.on('reloadVideo', (event, args) => {
-  const room = rooms.find(r => r.id === args.id)
+ipcMain.on('reloadVideo', async (event, args) => {
+  const room = await getRoom(args.id)
   if (room && room.vWin) {
     // room.vWin.webContents.send('reloadVideo')
     room.vWin.reload()
   }
 })
 
-ipcMain.on('resizeVideo', (event, args) => {
-  const room = rooms.find(r => r.id === args.id)
+ipcMain.on('resizeVideo', async (event, args) => {
+  const room = await getRoom(args.id)
   if (room && room.vWin) {
     room.vWin.webContents.send('resizeVideo')
   }
@@ -935,25 +984,249 @@ ipcMain.on('reloadAll', () => {
   })
 })
 
-ipcMain.on('increaseFontSize', (event, args) => {
-  const room = rooms.find(r => r.id === args.id)
+ipcMain.on('increaseFontSize', async (event, args) => {
+  const room = await getRoom(args.id)
   if (room && room.cWin) {
     room.cWin.webContents.send('increaseFontSize')
   }
 })
 
-ipcMain.on('decreaseFontSize', (event, args) => {
-  const room = rooms.find(r => r.id === args.id)
+ipcMain.on('decreaseFontSize', async (event, args) => {
+  const room = await getRoom(args.id)
   if (room && room.cWin) {
     room.cWin.webContents.send('decreaseFontSize')
   }
+})
+
+ipcMain.on('showAccounts', () => {
+  const dialog = new BrowserWindow({
+    title: 'Login',
+    modal: true,
+    show: true,
+    alwaysOnTop: true,
+    minimizable: false,
+    maximizable: false,
+    width: 400,
+    webPreferences: {
+      enableRemoteModule: true,
+      nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
+    }
+  })
+
+  loadURL(dialog, '/#/accounts', true)
+})
+
+ipcMain.on('showGoogle', () => {
+  const dialog = new BrowserWindow({
+    title: 'Google',
+    show: true,
+    width: 1280,
+    height: 720
+  })
+
+  dialog.loadURL('https://www.google.com/')
+
+  dialog.webContents.on('new-window', (event, url) => {
+    event.preventDefault()
+    const win = new BrowserWindow({
+      alwaysOnTop: true,
+      parent: dialog,
+      show: true
+    })
+    win.loadURL(url)
+    event.newGuest = win
+  })
+})
+
+ipcMain.on('getAccounts', (event) => {
+  const accounts = db.get('accounts').toJSON().map(account => ({ ...account, nick_name: decodeURIComponent(account.nick_name) }))
+  event.sender.send('accounts', { accounts })
+})
+
+ipcMain.on('showLogin', (event) => {
+  const dialog = new BrowserWindow({
+    title: 'Login',
+    parent: BrowserWindow.fromWebContents(event.sender),
+    modal: true,
+    show: true,
+    alwaysOnTop: true,
+    minimizable: false,
+    maximizable: false,
+    width: 1280,
+    height: 720,
+    webPreferences: {
+      enableRemoteModule: true,
+      nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION
+    }
+  })
+
+  dialog.webContents.on('new-window', (event, url) => {
+    event.preventDefault()
+    const win = new BrowserWindow({
+      alwaysOnTop: true,
+      parent: dialog,
+      show: true
+    })
+    win.loadURL(url)
+    event.newGuest = win
+  })
+
+  dialog.loadURL('http://www.bigo.tv/', { userAgent: 'Chrome' })
+
+  dialog.on('close', () => {
+    session.defaultSession.cookies.get({ url: 'http://bigo.tv' })
+      .then((cookies) => {
+        const account = {}
+        for (const cookie of cookies) {
+          account[cookie.name] = cookie.value
+
+          // Delete cookie
+          let url = ''
+          // get prefix, like https://www.
+          url += cookie.secure ? 'https://' : 'http://'
+          url += cookie.domain.charAt(0) === '.' ? 'www' : ''
+          // append domain and path
+          url += cookie.domain
+          url += cookie.path
+
+          session.defaultSession.cookies.remove(url, cookie.name, (error) => {
+            if (error) console.log(`error removing cookie ${cookie.name}`, error)
+          })
+        }
+        if (!account.yyuid) return
+        const existingAccount = db.get('accounts').find({ yyuid: account.yyuid })
+        if (existingAccount.value()) {
+          existingAccount.assign(account).write()
+        } else {
+          db.get('accounts').push(account).write()
+        }
+        event.sender.send('accounts', { accounts: db.get('accounts').toJSON() })
+        // session.defaultSession.clearStorageData({ origin: 'http://bigo.tv', storages: ['cookies'] })
+      }).catch((error) => {
+        console.log(error)
+      })
+  })
+})
+
+const getAccountCookies = (yyuid) => {
+  const account = db.get('accounts').find({ yyuid }).value()
+  if (!account) return
+
+  return Object.keys(account).map((key) => '' + key + '=' + account[key]).join('; ')
+}
+
+ipcMain.on('sendMessage', async (event, args) => {
+  const cookie = getAccountCookies(args.account)
+  if (!cookie) return
+
+  const room = await getRoom(args.id)
+  if (!room) return
+
+  const body = `interfaceName=sendChat&type=1&content=${encodeURIComponent(args.text)}&bc_gid=${room.bc_gid}&owner=${room.owner}`
+
+  fetch('https://weblogin.bigo.tv/broadcast', {
+    headers: {
+      accept: '*/*',
+      'accept-language': 'en-US,en;q=0.9,ar-LY;q=0.8,ar;q=0.7',
+      'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-site': 'same-origin',
+      'x-requested-with': 'XMLHttpRequest',
+      cookie
+    },
+    referrer: 'https://weblogin.bigo.tv/communicate',
+    referrerPolicy: 'no-referrer-when-downgrade',
+    body,
+    method: 'POST',
+    mode: 'cors'
+  })
+    .then(res => res.json())
+    .then(json => {
+      console.log(json)
+      event.sender.send('accountStatus', { account: args.account, logedIn: json.resCode === 0 })
+    })
+})
+
+ipcMain.on('joinGroup', async (event, args) => {
+  const room = await getRoom(args.id)
+  if (!room) return
+
+  leaveGroup(room)
+
+  const cookie = getAccountCookies(args.account)
+  if (!cookie) return
+
+  fetch(`https://weblogin.bigo.tv/joinGroup?bc_gid=${room.bc_gid}&_=${+Date.now()}`, {
+    headers: {
+      accept: '*/*',
+      'accept-language': 'en-US,en;q=0.9,ar-LY;q=0.8,ar;q=0.7',
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-site': 'same-origin',
+      'x-requested-with': 'XMLHttpRequest',
+      cookie
+    },
+    referrer: 'https://weblogin.bigo.tv/communicate',
+    referrerPolicy: 'no-referrer-when-downgrade',
+    body: null,
+    method: 'GET',
+    mode: 'cors'
+  })
+    .then(res => res.json())
+    .then(json => {
+      console.log(json)
+      event.sender.send('accountStatus', { account: args.account, logedIn: json.resCode === 0 })
+      if (json.resCode === 0) {
+        updateRoom({ id: room.id, account: args.account })
+      }
+    })
+})
+
+const leaveGroup = (room) => {
+  if (room.account) {
+    const cookie = getAccountCookies(room.account)
+    fetch(`https://weblogin.bigo.tv/leaveGroup?bc_gid=${room.bc_gid}&_=${+Date.now()}`, {
+      headers: {
+        accept: '*/*',
+        'accept-language': 'en-US,en;q=0.9,ar-LY;q=0.8,ar;q=0.7',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'x-requested-with': 'XMLHttpRequest',
+        cookie
+      },
+      referrer: 'https://weblogin.bigo.tv/communicate',
+      referrerPolicy: 'no-referrer-when-downgrade',
+      body: null,
+      method: 'GET',
+      mode: 'cors'
+    })
+      .then(res => res.json())
+      .then(json => console.log(json))
+    room.account = null
+  }
+}
+
+ipcMain.on('getRoomStatus', async (event, args) => {
+  const room = await getRoom(args.id)
+  if (!room) return
+
+  event.sender.send('roomStatus', { online: room.wsUrl !== '' })
+})
+
+ipcMain.on('attachVideo', async (event, args) => {
+  // const room = await getRoom(args.id)
+  // if (!room || !room.vWin) return
+
+  //
 })
 
 const updateUsers = async () => {
   const users = db.get('users').value()
   const updates = []
   for (const user of users) {
-    updates.push(updateUser(user, false))
+    updates.push(updateUser(user))
   }
   return Promise.all(updates)
 }

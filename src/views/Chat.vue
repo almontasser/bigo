@@ -2,7 +2,26 @@
   <div class="chat_box">
     <ul class="chat_list" :style="{ 'font-size': fontSize + 'px' }" ref="chatList" v-chat-scroll="{always: false, smooth: false}" @scroll="onChatListScroll">
       <span v-for="(chat, index) in chats" :key="index" v-html="chat"></span>
+      <span v-if="!online"><li><h3>USER IS OFFLINE</h3></li></span>
     </ul>
+    <b-form v-if="online" class="my-2 mx-1 row" id="chat_text" @submit="sendMessage">
+      <b-col md="auto" class="px-1">
+        <b-button @click="onLoginClick"><b-icon icon="person-circle"></b-icon></b-button>
+      </b-col>
+      <b-col md="auto" class="px-1">
+        <b-form-select
+          v-model="account"
+          :options="accountOptions"
+          @change="onAccountChange"
+        ></b-form-select>
+      </b-col>
+      <b-col class="px-1">
+        <b-form-input class="" width="auto" v-model="text"></b-form-input>
+      </b-col>
+      <b-col md="auto" class="px-1">
+        <b-button variant="primary" type="submit">Submit</b-button>
+      </b-col>
+    </b-form>
     <b-button
       v-show="scrollDownVisible"
       id="scrollDown"
@@ -24,11 +43,15 @@ export default {
     return {
       id: '',
       name: '',
-      ws: null,
       chats: [],
       chatList: null,
       scrollDownVisible: false,
-      fontSize: 14
+      fontSize: 14,
+      accounts: [],
+      account: null,
+      text: '',
+      online: true,
+      waitingMessageConfirmation: false
     }
   },
   methods: {
@@ -37,23 +60,42 @@ export default {
     },
     onScrollDownClick () {
       this.chatList.scrollTop = this.chatList.scrollHeight
+    },
+    sendMessage (event) {
+      event.preventDefault()
+      if (!this.account || !this.text) return
+
+      this.waitingMessageConfirmation = true
+      ipcRenderer.send('sendMessage', { id: this.id, account: this.account, text: this.text })
+    },
+    onAccountChange (value) {
+      ipcRenderer.send('joinGroup', { id: this.id, account: this.account })
+    },
+    onLoginClick () {
+      this.account = null
+      ipcRenderer.send('showLogin')
+    }
+  },
+  computed: {
+    accountOptions () {
+      return [
+        { text: 'Select Account', value: null },
+        ...this.accounts.map(account => {
+          let text = account.nick_name
+          if (account.logedIn === false) text = '❌ ' + text
+          else if (account.logedIn === true) text = '✅ ' + text
+          return { text, value: account.yyuid }
+        })
+      ]
     }
   },
   created () {
     ipcRenderer.on('message', (event, args) => {
-      // const chatBox = this.$refs.chatBox
-      // console.log('scrollTop: ' + chatBox.scrollTop)
-      // console.log('\nscrollHeight: ' + chatBox.scrollHeight)
-      // const shuldScroll = chatBox.scrollTop === chatBox.scrollHeight - chatBox.clientHeight
       this.chats.push(args)
-      // if (shuldScroll) {
-      //   this.$nextTick(() => {
-      //     chatBox.scrollTop = chatBox.scrollHeight
-      //   })
-      // }
     })
 
     ipcRenderer.on('roomEnded', () => {
+      this.online = false
       this.chats.push('ROOM ENDED')
     })
 
@@ -64,11 +106,32 @@ export default {
     ipcRenderer.on('increaseFontSize', (event, args) => {
       this.fontSize = this.fontSize + 1
     })
+
+    ipcRenderer.on('accounts', (event, args) => {
+      this.accounts = args.accounts
+    })
+
+    ipcRenderer.on('accountStatus', (event, args) => {
+      if (this.waitingMessageConfirmation) {
+        if (args.logedIn) this.text = ''
+        this.waitingMessageConfirmation = false
+      }
+      this.accounts = this.accounts.map(account => {
+        if (account.yyuid === args.account) return { ...account, logedIn: args.logedIn }
+        else return account
+      })
+    })
+
+    ipcRenderer.on('roomStatus', (event, args) => {
+      this.online = args.online
+    })
   },
   mounted () {
     this.id = this.$route.query.id
     this.name = this.$route.query.name
     this.chatList = this.$refs.chatList
+    ipcRenderer.send('getAccounts')
+    ipcRenderer.send('getRoomStatus', { id: this.id })
   }
 }
 </script>
@@ -98,6 +161,8 @@ export default {
 
 .chat_box {
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat_list {
@@ -111,11 +176,13 @@ export default {
   max-height: 40px;
 }
 
+.chat_list span li {
+  display: flex;
+  align-items: baseline;
+}
+
 .chat_list .user_grade{
   display: inline-block;
-  /*position: absolute;
-  left: 0;
-  top: 0;*/
   margin-left: -25px;
   margin-right: 5px;
 }
@@ -140,14 +207,11 @@ export default {
 .chat_list li{
   margin-bottom: 10px;
   position: relative;
-  /* padding-left: 25px; */
-  /* width: 285px; */
   list-style: none;
 }
 .chat_list .user_text_content{
   font-size: 1.2em;
   color: #666666;
-  /*word-break: break-all;*/
   font-family: 'sans_300';
 }
 .chat_list .room_notice{
@@ -170,7 +234,7 @@ export default {
 #scrollDown {
   position: absolute;
   right: 25px;
-  bottom: 10px;
+  bottom: 60px;
 }
 
 </style>

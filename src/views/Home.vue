@@ -6,17 +6,34 @@
     </div>
     <div class="favs px-3 py-2">
       <h3>Favorites</h3>
-      <vue-simple-context-menu
-          :elementId="'favsMenu'"
-          :options="favsMenuOptions"
-          :ref="'favsMenu'"
-          @option-clicked="favsOptionClicked"
-        />
+      <vue-context ref="favsMenu">
+        <template slot-scope="child">
+          <li><a @click.prevent="onOpenChatClick($event, child.data)">Open Chat</a></li>
+          <li class="v-context__sub">
+            <a>Attach to window</a>
+            <ul class="v-context">
+              <li v-for="video in videos" :key="'m' + video.id">
+                <a @click="onAttachToVideo(video.id, child.data)">{{`${video.id} - ${video.name}`}}</a>
+              </li>
+            </ul>
+          </li>
+          <li><a @click="onFavEditClick($event, child.data)">Edit</a></li>
+          <li><a @click="onFavDeleteClick($event, child.data)">Delete</a></li>
+        </template>
+      </vue-context>
         <b-form-input class="my-2" v-model="favsSearch" placeholder="Search"></b-form-input>
         <b-button size="sm" class="mb-2" @click="addFavDialog"><b-icon icon="person-plus-fill"></b-icon> Add User</b-button>
         <b-button size="sm" class="mb-2 ml-2" @click="refreshFavList"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
         <b-list-group>
-          <b-list-group-item class="d-flex align-items-center" href="#" v-for="user in filteredFavs" :key="user.id" v-on:click="addVideo(user.id, user.customName); favsSidebarVisible=false" @contextmenu.prevent.stop="handleFavsRightClick($event, user)">
+          <b-list-group-item
+            href="#"
+            class="d-flex align-items-center"
+            v-for="user in filteredFavs"
+            :key="user.id"
+            :data-id="user.id"
+            :data-name="user.customName"
+            v-on:click="addVideo(user.id, user.customName)"
+            @contextmenu.prevent="$refs.favsMenu.open($event, { id: user.id, name: user.customName })">
             <b-img rounded="circle" width=42 height=42 :src="user.thumb_img" style="margin-right: 10px;"></b-img>
             <p style="margin-bottom: 0;">
             <span class="user-name">{{user.customName}}</span><br/>
@@ -35,14 +52,29 @@
           <v-select class="ml-2" v-model="usersCountry" :options="countries" @input="usersCountryChanged"></v-select>
           <b-button size="sm" class="ml-2" @click="refreshUsers"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
       </b-form>
-      <vue-simple-context-menu
-        :elementId="'usersMenu'"
-        :options="usersMenuOptions"
-        :ref="'usersMenu'"
-        @option-clicked="usersOptionClicked"
-      />
+      <vue-context ref="usersMenu">
+        <template slot-scope="child">
+          <li><a @click.prevent="onOpenChatClick($event, child.data)">Open Chat</a></li>
+          <li
+            class="v-context__sub"
+            :class="{ disabled: videos.length === 0 }"
+            >
+            <a>Attach to window</a>
+            <ul class="v-context">
+              <li v-for="video in videos" :key="'m' + video.id">
+                <a @click="log(video.id)">{{`${video.id} - ${video.name}`}}</a>
+              </li>
+            </ul>
+          </li>
+          <li><a @click="onUserAddToFavClick($event, child.data)">Add to favorites</a></li>
+        </template>
+      </vue-context>
       <ul style="padding-left: 0; margin-right: -10px;">
-        <li class="room_item" v-for="user in filteredUsers" :key="user.bigo_id" @contextmenu.prevent.stop="handleUsersRightClick($event, user)">
+        <li
+          class="room_item"
+          v-for="user in filteredUsers"
+          :key="user.bigo_id"
+          @contextmenu.prevent="$refs.usersMenu.open($event, { id: user.bigo_id, name: user.nick_name })">
           <a href="#" v-on:click="addVideo(user.bigo_id, user.nick_name); usersSidebarVisible=false">
             <div class="host_photo">
               <div class="image_shadow"></div>
@@ -76,6 +108,7 @@ import ChatItem from '@/components/ChatItem.vue'
 import { ipcRenderer } from 'electron'
 import { mapState } from 'vuex'
 import smalltalk from 'smalltalk'
+import VueContext from 'vue-context'
 
 export default {
   name: 'Home',
@@ -87,18 +120,8 @@ export default {
       usersCountry: { code: 'SA', label: 'Saudi Arabia' },
       users: [],
       usersInfiniteLoaderState: null,
-      usersMenuOptions: [
-        { id: 0, name: 'Add to favorites' },
-        { id: 1, name: 'Open Chat' }
-      ],
-      favsSidebarVisible: false,
       favsSearch: '',
       favs: [],
-      favsMenuOptions: [
-        { id: 2, name: 'Open Chat' },
-        { id: 0, name: 'Edit' },
-        { id: 1, name: 'Delete' }
-      ],
       videoRefreshTimeout: 0,
       showingSettings: false
     }
@@ -124,24 +147,18 @@ export default {
   },
   components: {
     VideoItem,
-    ChatItem
+    ChatItem,
+    VueContext
   },
   methods: {
-    // openVideo (id, name) {
-    //   if (id && !this.videos.find(i => i.id === id)) {
-    //     this.videos.push({ id, name })
-    //   }
-    // },
+    log (m) {
+      console.log(m)
+    },
     async addVideo (id, name) {
       if (!await this.$store.dispatch('addVideo', { id, name })) {
         ipcRenderer.send('showVideoWindow', { id: id })
       }
     },
-    // toggleUsersSidebar () {
-    //   this.users = []
-    //   this.usersSidebarVisible = true
-    //   this.$refs.infiniteLoader.$emit('$InfiniteLoading:reset')
-    // },
     refreshUsers () {
       this.users = []
       this.$refs.infiniteLoader.$emit('$InfiniteLoading:reset')
@@ -149,28 +166,16 @@ export default {
     async usersCountryChanged () {
       this.users = []
       this.$refs.infiniteLoader.$emit('$InfiniteLoading:reset')
-      // const res = await axios.post('http://localhost:3000/users', {body: `ignoreUids=1578156944&tabType=${this.tabType}`})
-      // this.users = res.data
     },
     async infiniteHandler ($state) {
       const ignore = this.users.reduce((a, b) => a + '.' + b.owner, '1578156944')
-      // const res = await axios.post('http://localhost:3000/users', {body: `ignoreUids=${ignore}&tabType=${this.tabType}`})
       const args = `ignoreUids=${ignore}&tabType=${this.tabType}`
       this.usersInfiniteLoaderState = $state
       ipcRenderer.send('getUsers', args)
     },
-    handleUsersRightClick (event, item) {
-      this.$refs.usersMenu.showMenu(event, item)
-    },
-    async usersOptionClicked (event) {
-      if (event.option.id === 0) {
-        ipcRenderer.send('showFavDialog', { id: event.item.bigo_id, name: event.item.nick_name })
-      }
-      if (event.option.id === 1) {
-        if (!await this.$store.dispatch('addChat', { id: event.item.bigo_id, name: event.item.nick_name })) {
-          ipcRenderer.send('showChatWindow', { id: event.item.bigo_id })
-        }
-      }
+    onUserAddToFavClick ($event, data) {
+      const { id, name } = data
+      ipcRenderer.send('showFavDialog', { id, name })
     },
     addFavDialog () {
       ipcRenderer.send('showFavDialog', { id: '', name: '' })
@@ -186,21 +191,23 @@ export default {
       this.fetchFavsList()
       this.favsSidebarVisible = true
     },
-    async favsOptionClicked (event) {
-      if (event.option.id === 0) {
-        ipcRenderer.send('showFavDialog', { id: event.item.id, name: event.item.customName, edit: event.item.id })
-      }
-      if (event.option.id === 1) {
-        ipcRenderer.send('deleteFav', { id: event.item.id })
-      }
-      if (event.option.id === 2) {
-        if (!await this.$store.dispatch('addChat', { id: event.item.id, name: event.item.customName })) {
-          ipcRenderer.send('showChatWindow', { id: event.item.id })
-        }
+    async onOpenChatClick ($e, data) {
+      const { id, name } = data
+      if (!await this.$store.dispatch('addChat', { id, name })) {
+        ipcRenderer.send('showChatWindow', { id })
       }
     },
-    handleFavsRightClick (event, item) {
-      this.$refs.favsMenu.showMenu(event, item)
+    onFavEditClick ($e, data) {
+      const { id, name } = data
+      ipcRenderer.send('showFavDialog', { id, name, edit: id })
+    },
+    onFavDeleteClick ($e, data) {
+      const { id } = data
+      ipcRenderer.send('deleteFav', { id })
+    },
+    onAttachToVideo (parentId, data) {
+      const { id, name } = data
+      ipcRenderer.send('attachVideo', { parentId, id, name })
     }
   },
   created () {
@@ -287,7 +294,6 @@ input {
 .favs {
   flex: 0 0 429px;
   overflow: auto;
-  /* height: 100%; */
 }
 
 .users {

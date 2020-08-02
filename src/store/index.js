@@ -1,7 +1,7 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
 // import { ipcRenderer } from 'electron'
-import { createPersistedState, createSharedMutations } from 'vuex-electron'
+import { createSharedMutations } from 'vuex-electron'
 
 Vue.use(Vuex)
 
@@ -59,7 +59,7 @@ export default new Vuex.Store({
   modules: {
   },
   plugins: [
-    createSharedMutations(),
-    createPersistedState()
+    createSharedMutations()
+    // createPersistedState({ throttle: 500 })
   ]
 })
