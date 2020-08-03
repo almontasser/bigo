@@ -280,9 +280,9 @@ const adapter = new FileSync(homeDir + '\\AppData\\Roaming\\bigo\\db.json')
 const db = lowdb(adapter)
 db.defaults({ users: [], videoRefreshTimeout: 5000, accounts: [] }).write()
 
-function loadURL (window, path, showDevTools) {
+async function loadURL (window, path, showDevTools) {
   if (process.env.WEBPACK_DEV_SERVER_URL) {
-    window.loadURL(process.env.WEBPACK_DEV_SERVER_URL + path)
+    await window.loadURL(process.env.WEBPACK_DEV_SERVER_URL + path)
     if (!process.env.IS_TEST && showDevTools) window.webContents.openDevTools()
   } else {
     createProtocol('app')
@@ -418,26 +418,35 @@ ipcMain.on('getCountries', async (event, args) => {
 })
 
 ipcMain.on('getUsers', async (event, args) => {
-  const res = await fetch('https://www.bigo.tv/openOfficialWeb/vedioList/5', {
-    headers: {
-      accept: '*/*',
-      'accept-encoding': 'gzip,deflate,br',
-      'accept-language': 'en-US,en;q=0.9,ar-LY;q=0.8,ar;q=0.7',
-      'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
-      'sec-fetch-dest': 'empty',
-      'sec-fetch-mode': 'cors',
-      'sec-fetch-site': 'same-origin',
-      'x-requested-with': 'XMLHttpRequest'
-    },
-    referrer: 'https://www.bigo.tv/show',
-    referrerPolicy: 'no-referrer-when-downgrade',
-    // 'body': 'ignoreUids=1578156944&tabType=ALL',
-    body: args,
-    method: 'POST',
-    mode: 'cors'
-  })
+  let ignore = '1578156944'
+  while (true) {
+    const res = await fetch('https://www.bigo.tv/openOfficialWeb/vedioList/5', {
+      headers: {
+        accept: '*/*',
+        'accept-encoding': 'gzip,deflate,br',
+        'accept-language': 'en-US,en;q=0.9,ar-LY;q=0.8,ar;q=0.7',
+        'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'x-requested-with': 'XMLHttpRequest'
+      },
+      referrer: 'https://www.bigo.tv/show',
+      referrerPolicy: 'no-referrer-when-downgrade',
+      body: `ignoreUids=${ignore}&tabType=${args.tabType}`,
+      method: 'POST',
+      mode: 'cors'
+    })
 
-  mainWindow.webContents.send('users', await res.json())
+    const json = await res.json()
+    if (!json || !json.length) break
+
+    mainWindow.webContents.send('users', { uuid: args.uuid, users: json })
+
+    ignore = json.reduce((a, b) => a + '.' + b.owner, ignore)
+  }
+
+  // mainWindow.webContents.send('users', users)
 })
 
 ipcMain.on('createChatWindow', async (event, args) => {
@@ -857,7 +866,9 @@ ipcMain.on('addFav', (event, args) => {
       pushFavs()
     }
   } else {
-    updateUser({ id, customName: name })
+    const user = { id: args.id, customName: name, live: true, viewers: 0 }
+    if (mainWindow) mainWindow.webContents.send('fav', { ...user, updating: true })
+    updateUser(user)
   }
 })
 

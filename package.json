@@ -28,6 +28,7 @@
     "node-fetch": "^2.6.0",
     "smalltalk": "^4.0.6",
     "utf-8-validate": "^5.0.2",
+    "uuid": "^8.3.0",
     "video.js": "^7.8.4",
     "vue": "^2.6.11",
     "vue-chat-scroll": "^1.4.0",

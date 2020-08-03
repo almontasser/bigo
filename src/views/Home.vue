@@ -4,8 +4,13 @@
       <video-item v-for="video in videos" :key="'v' + video.id" :id="video.id" :name="video.name"></video-item>
       <chat-item v-for="chat in chats" :key="'c' + chat.id" :id="chat.id" :name="chat.name"></chat-item>
     </div>
-    <div class="favs px-3 py-2">
-      <h3>Favorites</h3>
+    <div class="favs px-3 pt-2">
+      <div>
+        <h3>Favorites</h3>
+        <b-form-input class="my-2" v-model="favsSearch" placeholder="Search"></b-form-input>
+        <b-button size="sm" class="mb-2" @click="addFavDialog"><b-icon icon="person-plus-fill"></b-icon> Add User</b-button>
+        <b-button size="sm" class="mb-2 ml-2" @click="refreshFavList"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
+      </div>
       <vue-context ref="favsMenu">
         <template slot-scope="child">
           <li><a @click.prevent="onOpenChatClick($event, child.data)">Open Chat</a></li>
@@ -21,10 +26,7 @@
           <li><a @click="onFavDeleteClick($event, child.data)">Delete</a></li>
         </template>
       </vue-context>
-        <b-form-input class="my-2" v-model="favsSearch" placeholder="Search"></b-form-input>
-        <b-button size="sm" class="mb-2" @click="addFavDialog"><b-icon icon="person-plus-fill"></b-icon> Add User</b-button>
-        <b-button size="sm" class="mb-2 ml-2" @click="refreshFavList"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
-        <b-list-group>
+        <b-list-group class="favs-list" flush>
           <b-list-group-item
             href="#"
             class="d-flex align-items-center"
@@ -45,13 +47,15 @@
           </b-list-group-item>
         </b-list-group>
     </div>
-    <div class="users px-3 py-2">
-      <h3>Live Users</h3>
-      <b-form inline class="mb-2">
-          <b-form-input  v-model="usersSearch" placeholder="Search"></b-form-input>
-          <v-select class="ml-2" v-model="usersCountry" :options="countries" @input="usersCountryChanged"></v-select>
-          <b-button size="sm" class="ml-2" @click="refreshUsers"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
-      </b-form>
+    <div class="users px-3">
+      <div class="live-users-header pr-3 pt-2">
+        <h3>Live Users</h3>
+        <b-form inline class="mb-2">
+            <b-form-input  v-model="usersSearch" placeholder="Search"></b-form-input>
+            <v-select class="ml-2" v-model="usersCountry" :options="countries" @input="usersCountryChanged"></v-select>
+            <b-button size="sm" class="ml-2" @click="refreshUsers"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
+        </b-form>
+      </div>
       <vue-context ref="usersMenu">
         <template slot-scope="child">
           <li><a @click.prevent="onOpenChatClick($event, child.data)">Open Chat</a></li>
@@ -69,7 +73,7 @@
           <li><a @click="onUserAddToFavClick($event, child.data)">Add to favorites</a></li>
         </template>
       </vue-context>
-      <ul style="padding-left: 0; margin-right: -10px;">
+      <ul class="live-users">
         <li
           class="room_item"
           v-for="user in filteredUsers"
@@ -95,7 +99,6 @@
             </div>
           </a>
         </li>
-        <infinite-loading ref="infiniteLoader" spinner="waveDots" @infinite="infiniteHandler"></infinite-loading>
       </ul>
     </div>
   </div>
@@ -109,6 +112,7 @@ import { ipcRenderer } from 'electron'
 import { mapState } from 'vuex'
 import smalltalk from 'smalltalk'
 import VueContext from 'vue-context'
+import { v4 as uuid4 } from 'uuid'
 
 export default {
   name: 'Home',
@@ -119,7 +123,7 @@ export default {
       countries: [],
       usersCountry: { code: 'SA', label: 'Saudi Arabia' },
       users: [],
-      usersInfiniteLoaderState: null,
+      usersUUID: '',
       favsSearch: '',
       favs: [],
       videoRefreshTimeout: 0,
@@ -142,7 +146,7 @@ export default {
       let filtered
       if (this.favsSearch) filtered = this.favs.filter(user => user.customName && user.customName.indexOf(this.favsSearch) > -1)
       else filtered = this.favs
-      return filtered.sort((a, b) => b.viewers - a.viewers)
+      return filtered.sort((a, b) => ((b.live ? 10000 : 0) + b.viewers) - ((a.live ? 10000 : 0) + a.viewers))
     }
   },
   components: {
@@ -160,18 +164,12 @@ export default {
       }
     },
     refreshUsers () {
+      this.usersUUID = uuid4()
       this.users = []
-      this.$refs.infiniteLoader.$emit('$InfiniteLoading:reset')
+      ipcRenderer.send('getUsers', { tabType: this.tabType, uuid: this.usersUUID })
     },
     async usersCountryChanged () {
-      this.users = []
-      this.$refs.infiniteLoader.$emit('$InfiniteLoading:reset')
-    },
-    async infiniteHandler ($state) {
-      const ignore = this.users.reduce((a, b) => a + '.' + b.owner, '1578156944')
-      const args = `ignoreUids=${ignore}&tabType=${this.tabType}`
-      this.usersInfiniteLoaderState = $state
-      ipcRenderer.send('getUsers', args)
+      this.refreshUsers()
     },
     onUserAddToFavClick ($event, data) {
       const { id, name } = data
@@ -216,16 +214,10 @@ export default {
     })
 
     ipcRenderer.on('users', (event, args) => {
-      if (!this.usersInfiniteLoaderState) return
-
-      const ids = new Set(this.users.map(u => u.bigo_id))
-      if (args && args.length) {
-        this.users = [...this.users, ...args.filter(u => !ids.has(u.bigo_id))]
-        this.usersInfiniteLoaderState.loaded()
-      } else {
-        this.usersInfiniteLoaderState.complete()
+      if (args.uuid === this.usersUUID && args.users.length) {
+        const ids = new Set(this.users.map(u => u.bigo_id))
+        this.users = [...this.users, ...args.users.filter(u => !ids.has(u.bigo_id))]
       }
-      this.usersInfiniteLoaderState = null
     })
 
     ipcRenderer.on('removeVideo', (event, args) => {
@@ -241,10 +233,14 @@ export default {
     })
 
     ipcRenderer.on('fav', (event, args) => {
-      this.favs = this.favs.map(fav => {
-        if (fav.id === args.id) return args
-        return fav
-      })
+      if (this.favs.find(f => f.id === args.id)) {
+        this.favs = this.favs.map(fav => {
+          if (fav.id === args.id) return args
+          return fav
+        })
+      } else {
+        this.favs.push(args)
+      }
     })
 
     ipcRenderer.on('showSettings', (event, args) => {
@@ -268,6 +264,7 @@ export default {
   },
   async mounted () {
     this.fetchFavsList()
+    this.refreshUsers()
     ipcRenderer.send('getCountries')
     ipcRenderer.send('getVideoRefreshTimeout')
   }
@@ -485,6 +482,30 @@ p {
   height: 192px;
 
   background: url(/opa.png) center bottom no-repeat;
+}
+
+.users {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.live-users {
+  overflow: auto;
+  padding-left: 0;
+  margin-right: -16px;
+  margin-bottom: 0;
+}
+
+.favs {
+  display: flex;
+  flex-direction: column;
+}
+
+.favs-list {
+  overflow: auto;
+  margin-left: -16px;
+  margin-right: -16px;
 }
 
 </style>
