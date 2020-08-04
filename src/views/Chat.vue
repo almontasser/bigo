@@ -166,8 +166,10 @@ export default {
 }
 
 .chat_list {
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   height: 100%;
+  direction: rtl;
 }
 
 .chat_list img{
@@ -183,8 +185,8 @@ export default {
 
 .chat_list .user_grade{
   display: inline-block;
-  margin-left: -25px;
-  margin-right: 5px;
+  margin-right: -25px;
+  margin-left: 5px;
 }
 .chat_list .grade_num{
   display: block;
@@ -213,6 +215,8 @@ export default {
   font-size: 1.2em;
   color: #666666;
   font-family: 'sans_300';
+  text-align: right;
+  word-wrap: break-word;
 }
 .chat_list .room_notice{
   font-size: 1.2em;
@@ -233,7 +237,7 @@ export default {
 
 #scrollDown {
   position: absolute;
-  right: 25px;
+  left: 25px;
   bottom: 60px;
 }
 

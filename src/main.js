@@ -10,7 +10,6 @@ import VueChatScroll from 'vue-chat-scroll'
 import 'bootstrap/dist/css/bootstrap.css'
 import 'bootstrap-vue/dist/bootstrap-vue.css'
 import 'vue-select/dist/vue-select.css'
-import 'vue-context/dist/css/vue-context.css'
 
 Vue.config.productionTip = false
 

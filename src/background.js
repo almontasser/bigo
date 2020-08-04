@@ -103,6 +103,7 @@ const getRoom = async (id, create) => {
         videoUrl: user.videoUrl,
         bc_gid: user.bc_gid,
         owner: user.owner,
+        name: user.name,
         account: null,
         updateWs: async () => {
           await refreshRoomLock.acquireAsync()
@@ -135,7 +136,7 @@ const getRoom = async (id, create) => {
                         case 0:
                           // Room End
                           if (room.cWin) room.cWin.webContents.send('roomEnded')
-                          if (room.vWin) room.vWin.webContents.send('roomEnded')
+                          if (room.vWin) room.vWin.webContents.send('roomEnded', { id: room.id })
                           room.roomEnded = true
                           if (room.wsTimeout) {
                             clearTimeout(room.wsTimeout)
@@ -153,12 +154,12 @@ const getRoom = async (id, create) => {
                         case 2:
                           allWords += chatContentType.type1
                             .replace('===', 'Broadcaster will leave for a moment. Please hold on')
-                          if (room.vWin) room.vWin.webContents.send('hold')
+                          if (room.vWin) room.vWin.webContents.send('hold', { id: room.id })
                           break
                         case 3:
                           allWords += chatContentType.type1
                             .replace('===', 'Broadcaster is back. LIVE is recovering')
-                          if (room.vWin) room.vWin.webContents.send('resume')
+                          if (room.vWin) room.vWin.webContents.send('resume', { id: room.id })
                           break
                         case 4:
                           allWords += chatContentType.type3
@@ -527,11 +528,14 @@ ipcMain.on('createChatWindow', async (event, args) => {
 })
 
 ipcMain.on('createVideoWindow', async (event, args) => {
-  let room = rooms.find(r => r.id === args.id)
+  let room = await getRoom(args.id)
+  // let room = rooms.find(r => r.id === args.id)
   if (room && room.vWin) {
     room.vWin.show()
     return
   }
+
+  room = getRoom(args.id, true)
 
   const vWin = new BrowserWindow({
     show: true,
@@ -580,8 +584,7 @@ ipcMain.on('createVideoWindow', async (event, args) => {
 
   vWin.setMenu(null)
 
-  if (!room) room = await getRoom(args.id, true)
-
+  room = await room
   room = await updateRoom({ id: room.id, aspect: 480 / 640, vWin })
   await room.updateWs()
 
@@ -590,15 +593,52 @@ ipcMain.on('createVideoWindow', async (event, args) => {
 
   vWin.setTitle(`${args.id} - ${args.name}`)
 
+  // setTimeout(() => {
+  //   if (vWin) {
+  //     vWin.webContents.send('hold', { id: args.id })
+
+  //     setTimeout(() => {
+  //       if (vWin) {
+  //         vWin.webContents.send('resume', { id: args.id })
+
+  //         setTimeout(() => {
+  //           if (vWin) {
+  //             vWin.webContents.send('roomEnded', { id: args.id })
+  //           }
+  //         }, 20000)
+  //       }
+  //     }, 20000)
+  //   }
+  // }, 20000)
+
   vWin.on('closed', async () => {
     if (!appQuiting) {
-      mainWindow.webContents.send('removeVideo', args.id)
-      delete room.vWin
-      if (!room.cWin) {
+      if (room.vWin === vWin) {
+        mainWindow.webContents.send('removeVideo', args.id)
+        delete room.vWin
+      }
+      if (room.id2) {
+        let room2 = await getRoom(room.id2)
+        if (room2) {
+          delete room2.vWin
+
+          if (!room2.cWin) {
+            if (room2.ws) {
+              if (room2.wsTimeout) clearTimeout(room2.wsTimeout)
+              room2 = await updateRoom({ id: room2.id, wsTimeout: null, roomEnded: true })
+              room2.ws.close()
+              delete room2.ws
+            }
+            rooms = rooms.filter(r => r.id !== room2.id)
+          }
+        }
+      }
+      if (!room.cWin && !room.vWin) {
         if (room.ws) {
           if (room.wsTimeout) clearTimeout(room.wsTimeout)
           room = await updateRoom({ id: room.id, wsTimeout: null, roomEnded: true })
           room.ws.close()
+          delete room.ws
         }
         rooms = rooms.filter(r => r.id !== args.id)
       }
@@ -888,9 +928,18 @@ ipcMain.on('deleteFav', (event, args) => {
   pushFavs()
 })
 
-ipcMain.on('showVideoWindow', async (event, args) => {
+// ipcMain.on('showVideoWindow', async (event, args) => {
+//   const room = await getRoom(args.id)
+//   if (room && room.vWin) room.vWin.show()
+// })
+
+ipcMain.handle('showVideoWindow', async (event, args) => {
   const room = await getRoom(args.id)
-  if (room && room.vWin) room.vWin.show()
+  if (room && room.vWin) {
+    room.vWin.show()
+    return true
+  }
+  return false
 })
 
 ipcMain.on('showChatWindow', async (event, args) => {
@@ -1226,11 +1275,78 @@ ipcMain.on('getRoomStatus', async (event, args) => {
   event.sender.send('roomStatus', { online: room.wsUrl !== '' })
 })
 
-ipcMain.on('attachVideo', async (event, args) => {
-  // const room = await getRoom(args.id)
-  // if (!room || !room.vWin) return
+async function sendVideoRoomDetails (webContents, id) {
+  const room = await getRoom(id)
+  let details = {
+    id: room.id,
+    name: room.name,
+    videoUrl: room.videoUrl
+  }
+  if (room.id2) {
+    const room2 = await getRoom(room.id2)
+    details = {
+      ...details,
+      id2: room2.id,
+      name2: room2.name,
+      videoUrl2: room2.videoUrl
+    }
+  }
+  webContents.send('videoRoomDetails', details)
+}
 
-  //
+ipcMain.on('attachVideo', async (event, args) => {
+  if (args.parentId === args.id) return
+  const room = await getRoom(args.parentId)
+  if (!room || !room.vWin) return
+  if (room.id2) {
+    await deattachVideo({ parentId: room.id, id: room.id2 })
+  }
+  room.id2 = args.id
+  const childRoom = await getRoom(args.id, true)
+  if (childRoom.vWin) {
+    const oldvWin = childRoom.vWin
+    childRoom.vWin = room.vWin
+    oldvWin.close()
+    mainWindow.webContents.send('removeVideo', childRoom.id)
+  } else {
+    childRoom.vWin = room.vWin
+  }
+  childRoom.updateWs()
+  await sendVideoRoomDetails(room.vWin.webContents, room.id)
+  const bounds = room.vWin.getContentBounds()
+  room.aspect = 960 / 640
+  bounds.width = parseInt(bounds.height * room.aspect)
+  room.vWin.setContentBounds(bounds)
+})
+
+async function deattachVideo (args) {
+  const room = await getRoom(args.parentId)
+  if (!room || !room.vWin) return
+  delete room.id2
+  let childRoom = await getRoom(args.id)
+  delete childRoom.vWin
+  if (!childRoom.cWin) {
+    if (childRoom.ws) {
+      if (childRoom.wsTimeout) clearTimeout(childRoom.wsTimeout)
+      childRoom = await updateRoom({ id: childRoom.id, wsTimeout: null, roomEnded: true })
+      childRoom.ws.close()
+      delete childRoom.ws
+    }
+    rooms = rooms.filter(r => r.id !== childRoom.id)
+  }
+  await sendVideoRoomDetails(room.vWin.webContents, room.id)
+  const bounds = room.vWin.getContentBounds()
+  room.aspect = 480 / 640
+  bounds.width = parseInt(bounds.height * room.aspect)
+  room.vWin.setContentBounds(bounds)
+}
+
+ipcMain.on('deattachVideo', async (event, args) => {
+  deattachVideo(args)
+})
+
+ipcMain.on('getVideoRoomDetails', async (event, args) => {
+  sendVideoRoomDetails(event.sender, args.id)
 })
 
 const updateUsers = async () => {

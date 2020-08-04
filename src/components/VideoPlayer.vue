@@ -1,9 +1,9 @@
 <template>
-  <div style="height: 100%;">
+  <div style="height: 100%; position: relative;">
     <div v-show="!loaded" class="loading-frame text-center">
       <div v-if="noMediaFound" style="color: white; font-size: 2rem;">User Is not Live</div>
       <div v-if="videoEnded" style="color: white; font-size: 2rem;">Live video Ended</div>
-      <b-spinner v-if="!noMediaFound" class="spinner" style="width: 3rem; height: 3rem;" label="Large Spinner"></b-spinner>
+      <b-spinner v-if="!noMediaFound && !videoEnded" class="spinner" style="width: 3rem; height: 3rem;" label="Large Spinner"></b-spinner>
     </div>
     <div v-if="userIsPaused" class="user-is-paused"></div>
     <video
@@ -68,19 +68,7 @@ export default {
     },
     onPlayerLoadeddata () {
       this.log('loadeddata')
-
       this.loadeddata = true
-      const video = this.$refs.videoPlayer
-      if (video.addEventListener) {
-        video.addEventListener('contextmenu', function (e) {
-          e.preventDefault()
-        }, false)
-      } else {
-        video.attachEvent('oncontextmenu', function () {
-          window.event.returnValue = false
-        })
-      }
-
       this.loaded = true
     },
     onPlayerError (error) {
@@ -89,7 +77,7 @@ export default {
       error.stopImmediatePropagation()
       if (this.player.error() && this.player.error().code === 4) this.noMediaFound = true
     },
-    playVideo: function (source) {
+    playVideo (source) {
       this.loadeddata = false
       const video = {
         withCredentials: false,
@@ -98,6 +86,25 @@ export default {
       }
       this.player.src(video)
     },
+    reload () {
+      this.playVideo(this.videoUrl)
+    },
+    userPaused () {
+      this.userIsPaused = true
+      this.player.pause()
+    },
+    userResumed () {
+      this.userIsPaused = false
+      this.player.play()
+    },
+    toggleControls () {
+      this.player.controls(!this.player.controls())
+    },
+    roomEnded () {
+      this.player.reset()
+      this.videoEnded = true
+      this.loaded = false
+    },
     log (msg) {
       // console.log(msg)
     }
@@ -105,7 +112,7 @@ export default {
   watch: {
     videoUrl () {
       if (!this.videoUrl) {
-        this.player.stop()
+        this.playVideo('')
       } else {
         this.playVideo(this.videoUrl)
       }
@@ -117,7 +124,7 @@ export default {
     this.player.on('canplay', this.onPlayerCanplay)
     this.player.on('loadeddata', this.onPlayerLoadeddata)
     this.player.on('error', this.onPlayerError)
-    // this.player.on('timeupdate', this.onPlayerTimeupdate)
+    this.playVideo(this.videoUrl)
   }
 }
 </script>

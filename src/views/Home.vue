@@ -11,13 +11,16 @@
         <b-button size="sm" class="mb-2" @click="addFavDialog"><b-icon icon="person-plus-fill"></b-icon> Add User</b-button>
         <b-button size="sm" class="mb-2 ml-2" @click="refreshFavList"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
       </div>
-      <vue-context ref="favsMenu">
+      <vue-context ref="favsMenu" subMenuOffset="4">
         <template slot-scope="child">
           <li><a @click.prevent="onOpenChatClick($event, child.data)">Open Chat</a></li>
-          <li class="v-context__sub">
+          <li
+            class="v-context__sub"
+            :class="{ disabled: filteredVideos(child.data).length === 0 }"
+            >
             <a>Attach to window</a>
             <ul class="v-context">
-              <li v-for="video in videos" :key="'m' + video.id">
+              <li v-for="video in filteredVideos(child.data)" :key="'m' + video.id">
                 <a @click="onAttachToVideo(video.id, child.data)">{{`${video.id} - ${video.name}`}}</a>
               </li>
             </ul>
@@ -56,17 +59,17 @@
             <b-button size="sm" class="ml-2" @click="refreshUsers"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
         </b-form>
       </div>
-      <vue-context ref="usersMenu">
+      <vue-context ref="usersMenu" subMenuOffset="4">
         <template slot-scope="child">
           <li><a @click.prevent="onOpenChatClick($event, child.data)">Open Chat</a></li>
           <li
             class="v-context__sub"
-            :class="{ disabled: videos.length === 0 }"
+            :class="{ disabled: filteredVideos(child.data).length === 0 }"
             >
             <a>Attach to window</a>
             <ul class="v-context">
-              <li v-for="video in videos" :key="'m' + video.id">
-                <a @click="log(video.id)">{{`${video.id} - ${video.name}`}}</a>
+              <li v-for="video in filteredVideos(child.data)" :key="'m' + video.id">
+                <a @click="onAttachToVideo(video.id, child.data)">{{`${video.id} - ${video.name}`}}</a>
               </li>
             </ul>
           </li>
@@ -158,9 +161,13 @@ export default {
     log (m) {
       console.log(m)
     },
+    filteredVideos (data) {
+      if (!data) return []
+      return this.videos.filter(v => v.id !== data.id)
+    },
     async addVideo (id, name) {
-      if (!await this.$store.dispatch('addVideo', { id, name })) {
-        ipcRenderer.send('showVideoWindow', { id: id })
+      if (!await ipcRenderer.invoke('showVideoWindow', { id })) {
+        this.$store.dispatch('addVideo', { id, name })
       }
     },
     refreshUsers () {
@@ -375,8 +382,8 @@ input {
   position: relative;
   overflow: hidden;
   margin-bottom: 20px;
-  width: 242px !important;
-  height: 232px !important;
+  width: 170px !important;
+  height: 200px !important;
 }
 
 .room_item a {
@@ -461,7 +468,7 @@ p {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  margin-right: 90px;
+  margin-right: 70px;
   font-style: normal;
   text-align: left;
 }
