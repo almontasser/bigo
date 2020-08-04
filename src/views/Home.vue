@@ -11,7 +11,7 @@
         <b-button size="sm" class="mb-2" @click="addFavDialog"><b-icon icon="person-plus-fill"></b-icon> Add User</b-button>
         <b-button size="sm" class="mb-2 ml-2" @click="refreshFavList"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
       </div>
-      <vue-context ref="favsMenu" subMenuOffset="4">
+      <vue-context ref="favsMenu" :subMenuOffset="4">
         <template slot-scope="child">
           <li><a @click.prevent="onOpenChatClick($event, child.data)">Open Chat</a></li>
           <li
@@ -59,7 +59,7 @@
             <b-button size="sm" class="ml-2" @click="refreshUsers"><b-icon icon="arrow-clockwise"></b-icon> Refresh</b-button>
         </b-form>
       </div>
-      <vue-context ref="usersMenu" subMenuOffset="4">
+      <vue-context ref="usersMenu" :subMenuOffset="4">
         <template slot-scope="child">
           <li><a @click.prevent="onOpenChatClick($event, child.data)">Open Chat</a></li>
           <li
