@@ -1038,7 +1038,7 @@ ipcMain.on('resizeVideo', async (event, args) => {
 })
 
 ipcMain.on('reloadAll', () => {
-  mainWindow.reload()
+  mainWindow.webContents.send('refreshAll')
   rooms.forEach(room => {
     if (room.vWin) room.vWin.reload()
   })
@@ -1160,7 +1160,7 @@ ipcMain.on('showLogin', (event) => {
         } else {
           db.get('accounts').push(account).write()
         }
-        event.sender.send('accounts', { accounts: db.get('accounts').toJSON() })
+        event.sender.send('accounts', { accounts: db.get('accounts').toJSON().map(account => ({ ...account, nick_name: decodeURIComponent(account.nick_name) })) })
         // session.defaultSession.clearStorageData({ origin: 'http://bigo.tv', storages: ['cookies'] })
       }).catch((error) => {
         console.log(error)

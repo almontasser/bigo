@@ -268,6 +268,11 @@ export default {
     ipcRenderer.on('videoRefreshTimeout', (event, args) => {
       this.videoRefreshTimeout = args.videoRefreshTimeout
     })
+
+    ipcRenderer.on('refreshAll', (event, args) => {
+      this.refreshUsers()
+      this.refreshFavList()
+    })
   },
   async mounted () {
     this.fetchFavsList()
