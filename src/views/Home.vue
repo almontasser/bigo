@@ -231,6 +231,7 @@ export default {
     })
 
     ipcRenderer.on('users', (event, args) => {
+      console.log('USERS')
       if (args.uuid === this.usersUUID && args.users.length) {
         const ids = new Set(this.users.map(u => u.bigo_id))
         this.users = [...this.users, ...args.users.filter(u => !ids.has(u.bigo_id))]
@@ -246,18 +247,29 @@ export default {
     })
 
     ipcRenderer.on('favs', (event, args) => {
+      console.log('favs')
       this.favs = args.favs
     })
 
     ipcRenderer.on('fav', (event, args) => {
-      if (this.favs.find(f => f.id === args.id)) {
-        this.favs = this.favs.map(fav => {
-          if (fav.id === args.id) return args
-          return fav
-        })
+      console.log('fav')
+
+      const foundIndex = this.favs.findIndex(f => f.id === args.id)
+
+      if (foundIndex >= 0) {
+        this.favs[foundIndex] = args
       } else {
         this.favs.push(args)
       }
+
+      // if (this.favs.find(f => f.id === args.id)) {
+      //   this.favs = this.favs.map(fav => {
+      //     if (fav.id === args.id) return args
+      //     return fav
+      //   })
+      // } else {
+      //   this.favs.push(args)
+      // }
     })
 
     ipcRenderer.on('showSettings', (event, args) => {

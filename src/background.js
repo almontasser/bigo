@@ -14,6 +14,7 @@ import cron from 'node-cron'
 import AwaitLock from 'await-lock'
 import fs from 'fs'
 import path from 'path'
+import asyncBatch from 'async-batch'
 
 import './store'
 
@@ -475,9 +476,16 @@ ipcMain.on('getCountries', async (event, args) => {
 
 ipcMain.on('getUsers', async (event, args) => {
   try {
-    let ignore = '1578156944'
+    let ignore = ''
     while (true) {
-      const res = await fetch('https://www.bigo.tv/openOfficialWeb/vedioList/5', {
+      // https://www.bigo.tv/OInterfaceWeb/vedioList/5?tabType=ALL&ignoreUids=1529894705.1532326758.1581143648.1568932933.1549271397.1570080311.405864924.1626397368.1635537932.526297804.491643164.1589530926.477501114.1505665625.1507797893.501306225.505490324.1636010538.1547212721.519750853.1632858696.1593859317.482032614.1837133532.471394875.1685883652.1841924468&fetchNum=30
+      let link
+      if (ignore) {
+        link = `https://www.bigo.tv/OInterfaceWeb/vedioList/5?ignoreUids=${ignore}&tabType=${args.tabType}&fetchNum=30`
+      } else {
+        link = `https://www.bigo.tv/OInterfaceWeb/vedioList/5?tabType=${args.tabType}&fetchNum=30`
+      }
+      const res = await fetch(link, {
         headers: {
           accept: '*/*',
           'accept-encoding': 'gzip,deflate,br',
@@ -490,17 +498,21 @@ ipcMain.on('getUsers', async (event, args) => {
         },
         referrer: 'https://www.bigo.tv/show',
         referrerPolicy: 'no-referrer-when-downgrade',
-        body: `ignoreUids=${ignore}&tabType=${args.tabType}`,
-        method: 'POST',
+        // body: `ignoreUids=${ignore}&tabType=${args.tabType}`,
+        method: 'GET',
         mode: 'cors'
       })
 
       const json = await res.json()
-      if (!json || !json.length) break
+      const data = json.data.data
+      if (!data || !data.length) {
+        // console.log('breakin')
+        break
+      }
 
-      mainWindow.webContents.send('users', { uuid: args.uuid, users: json })
+      mainWindow.webContents.send('users', { uuid: args.uuid, users: data })
 
-      ignore = json.reduce((a, b) => a + '.' + b.owner, ignore)
+      ignore = data.reduce((a, b) => a + '.' + b.owner, ignore)
     }
   } catch {}
 
@@ -987,8 +999,12 @@ const getFavsFromDB = () => {
   return result
 }
 
-const pushFavs = () => {
-  mainWindow.webContents.send('favs', { favs: getFavsFromDB() })
+const pushFavs = (reloadState = false) => {
+  let favs = getFavsFromDB()
+  if (reloadState) {
+    favs = favs.map(f => ({ ...f, updating: true }))
+  }
+  mainWindow.webContents.send('favs', { favs })
 }
 
 const getUserDetails = async user => {
@@ -1055,7 +1071,7 @@ const getUserDetails = async user => {
 const updateUser = async user => {
   const u = db.get('users').find({ id: user.id })
   if (u.value()) {
-    if (new Date() - new Date(u.value().lastUpdate) < 500) {
+    if (new Date() - new Date(u.value().lastUpdate) < 1000) {
       return u.value()
     }
   }
@@ -1109,7 +1125,7 @@ ipcMain.on('addFav', (event, args) => {
 })
 
 ipcMain.on('getFavs', () => {
-  pushFavs()
+  pushFavs(true)
 })
 
 ipcMain.on('refreshFavs', async () => {
@@ -1585,9 +1601,13 @@ ipcMain.on('getVideoRoomDetails', async (event, args) => {
 
 const updateUsers = async () => {
   const users = readFavs()
-  for (const user of users) {
-    await updateUser(user)
-  }
+  const parallelism = 10
+
+  await asyncBatch(users, updateUser, parallelism)
+
+  // for (const user of users) {
+  //   await updateUser(user)
+  // }
 }
 
 cron.schedule('0,5,10,15,20,25,30,35,40,45,50,55 * * * *', async function() {
