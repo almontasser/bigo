@@ -231,7 +231,6 @@ export default {
     })
 
     ipcRenderer.on('users', (event, args) => {
-      console.log('USERS')
       if (args.uuid === this.usersUUID && args.users.length) {
         const ids = new Set(this.users.map(u => u.bigo_id))
         this.users = [...this.users, ...args.users.filter(u => !ids.has(u.bigo_id))]
@@ -247,13 +246,10 @@ export default {
     })
 
     ipcRenderer.on('favs', (event, args) => {
-      console.log('favs')
       this.favs = args.favs
     })
 
     ipcRenderer.on('fav', (event, args) => {
-      console.log('fav')
-
       const foundIndex = this.favs.findIndex(f => f.id === args.id)
 
       if (foundIndex >= 0) {
