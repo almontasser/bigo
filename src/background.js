@@ -1426,7 +1426,7 @@ ipcMain.on('sendMessage', async (event, args) => {
 
   // console.log(body)
 
-  fetch('https://weblogin.bigo.tv/broadcast', {
+  fetch('https://ta.bigo.tv/official_website_login/broadcast', {
     headers: {
       accept: '*/*',
       'accept-language': 'en-US,en;q=0.9,ar-LY;q=0.8,ar;q=0.7',
@@ -1439,7 +1439,7 @@ ipcMain.on('sendMessage', async (event, args) => {
       'x-requested-with': 'XMLHttpRequest',
       cookie
     },
-    referrer: 'https://weblogin.bigo.tv/communicate',
+    referrer: 'https://www.bigo.tv/',
     referrerPolicy: 'no-referrer-when-downgrade',
     body,
     method: 'POST',
@@ -1448,50 +1448,52 @@ ipcMain.on('sendMessage', async (event, args) => {
   })
     .then(res => {
       // console.log(res)
-      res.json()
+      return res.json()
     })
     .then(json => {
-      // console.log(json)
-      event.sender.send('accountStatus', { account: args.account, logedIn: json && json.resCode === 0 })
+      event.sender.send('accountStatus', { account: args.account, logedIn: json && json.code === 0 })
     })
 })
 
 ipcMain.on('joinGroup', async (event, args) => {
-  // const room = await getRoom(args.id)
-  // if (!room) return
-  // leaveGroup(room)
-  // const cookie = getAccountCookies(args.account)
-  // if (!cookie) return
+  const room = await getRoom(args.id)
+  if (!room) return
+  leaveGroup(room)
+  const cookie = getAccountCookies(args.account)
+  if (!cookie) return
   // fetch(`https://weblogin.bigo.tv/joinGroup?bc_gid=${room.bc_gid}&_=${+Date.now()}`, {
-  //   headers: {
-  //     accept: '*/*',
-  //     'accept-language': 'en-US,en;q=0.9,ar-LY;q=0.8,ar;q=0.7',
-  //     'sec-fetch-dest': 'empty',
-  //     'sec-fetch-mode': 'cors',
-  //     'sec-fetch-site': 'same-origin',
-  //     'x-requested-with': 'XMLHttpRequest',
-  //     cookie
-  //   },
-  //   referrer: 'https://weblogin.bigo.tv/communicate',
-  //   referrerPolicy: 'no-referrer-when-downgrade',
-  //   body: null,
-  //   method: 'GET',
-  //   mode: 'cors'
-  // })
-  //   .then(res => res.json())
-  //   .then(json => {
-  //     console.log(json)
-  //     event.sender.send('accountStatus', { account: args.account, logedIn: json.resCode === 0 })
-  //     if (json.resCode === 0) {
-  //       updateRoom({ id: room.id, account: args.account })
-  //     }
-  //   })
+  fetch(`https://ta.bigo.tv/official_website_login/joinGroup?bc_gid=${room.bc_gid}&secretKey=`, {
+    headers: {
+      accept: '*/*',
+      'accept-language': 'en-US,en;q=0.9,ar-LY;q=0.8,ar;q=0.7',
+      'sec-fetch-dest': 'empty',
+      'sec-fetch-mode': 'cors',
+      'sec-fetch-site': 'same-origin',
+      'x-requested-with': 'XMLHttpRequest',
+      cookie
+    },
+    // referrer: 'https://weblogin.bigo.tv/communicate',
+    referrer: 'https://www.bigo.tv/',
+    referrerPolicy: 'no-referrer-when-downgrade',
+    body: null,
+    method: 'GET',
+    mode: 'cors'
+  })
+    .then(res => res.json())
+    .then(json => {
+      // console.log(json)
+      event.sender.send('accountStatus', { account: args.account, logedIn: json.code === 0 })
+      if (json.code === 0) {
+        updateRoom({ id: room.id, account: args.account })
+      }
+    })
 })
 
 const leaveGroup = room => {
   if (room.account) {
     const cookie = getAccountCookies(room.account)
-    fetch(`https://weblogin.bigo.tv/leaveGroup?bc_gid=${room.bc_gid}&_=${+Date.now()}`, {
+    // fetch(`https://weblogin.bigo.tv/leaveGroup?bc_gid=${room.bc_gid}&_=${+Date.now()}`, {
+    fetch(`https://ta.bigo.tv/official_website_login/leaveGroup?bc_gid=${room.bc_gid}`, {
       headers: {
         accept: '*/*',
         'accept-language': 'en-US,en;q=0.9,ar-LY;q=0.8,ar;q=0.7',
@@ -1501,7 +1503,7 @@ const leaveGroup = room => {
         'x-requested-with': 'XMLHttpRequest',
         cookie
       },
-      referrer: 'https://weblogin.bigo.tv/communicate',
+      referrer: 'https://www.bigo.tv/',
       referrerPolicy: 'no-referrer-when-downgrade',
       body: null,
       method: 'GET',
